@@ -3,8 +3,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://uatoiznolaywyexayoic.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_WseryEK6Hu6M__WhAql21g_DZfVAtI6';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gikbfmyiciabrkuikftp.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_y3MXoYQ8_ZYySh7MOtRLBw_SMphq4W5';
 const DAILY_LIMIT = Number(process.env.MIDAD_DAILY_LIMIT || 60);
 const MODEL = process.env.MIDAD_MODEL || 'claude-opus-5-5';
 const MAX_PROMPT_BYTES = 400000;
