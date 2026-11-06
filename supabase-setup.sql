@@ -1,4 +1,4 @@
--- مداد: إعداد قاعدة البيانات. الصقه كامل في SQL Editor واضغط Run مرة وحدة.
+-- مشكاة: إعداد قاعدة البيانات. الصقه كامل في SQL Editor واضغط Run مرة وحدة.
 create table public.midad_admins (
   user_id uuid primary key references auth.users on delete cascade
 );
@@ -69,4 +69,4 @@ create policy "midad: admins delete books" on storage.objects for delete to auth
 
 alter publication supabase_realtime add table public.midad_books;
 
-select 'تم إعداد مداد' as result;
+select 'تم إعداد مشكاة' as result;

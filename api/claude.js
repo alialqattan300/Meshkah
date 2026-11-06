@@ -1,4 +1,4 @@
-// Midad: summaries, quizzes and search expansion through Claude.
+// Meshkah: summaries, quizzes and search expansion through Claude.
 // The browser sends the signed-in user's Supabase token; the API key stays on the server.
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
