@@ -762,6 +762,9 @@ function bookCard(b) {
   const pct = Math.round((b.progress || 0) * 100);
   const actions = el('div', { class: 'book-actions' },
     el('button', { class: 'btn primary small', onclick: () => openBook(b.id) }, b.lastRead ? 'كمّل القراءة' : 'افتح'),
+    b.format === 'pdf' && b.assetId && canAdd() && !b.pendingUpload && !(CONV.get(b.id) || {}).running && !S.books.has(b.id + TSH_SUFFIX) &&
+      el('button', { class: 'btn small', onclick: () => convertBook(b.id) }, 'حوّله لنص مشكّل'),
+    CONV.has(b.id) && CONV.get(b.id).running && el('button', { class: 'btn small', onclick: () => { CONV.get(b.id).stop = true; } }, 'وقّف التحويل'),
     b.id !== SAMPLE_ID && canAdd() && !b.pendingUpload && el('button', { class: 'btn ghost small', onclick: () => askDelete(actions, b) }, 'احذف'));
   return el('li', {}, el('article', { class: 'book' },
     el('div', { class: 'spine', 'data-fmt': b.format }, fmtLabel(b.format)),
@@ -772,6 +775,7 @@ function bookCard(b) {
       el('p', { class: 'meta', text: b.lastRead ? `وصلت ${num(pct)}٪ · آخر قراءة ${relDate(b.lastRead)}` : 'ما بديت فيه' }),
       b.missing && el('p', { class: 'missing', text: 'الملف مو على هالجهاز. أضفه مرة ثانية وبترجع ملاحظاتك.' }),
       b.pendingUpload && el('p', { class: 'meta', text: 'يرفعه للمكتبة المشتركة…' }),
+      CONV.has(b.id) && el('p', { class: CONV.get(b.id).err ? 'missing' : 'meta', text: CONV.get(b.id).msg }),
       b.localOnly && el('p', { class: 'missing', text: 'على جهازك بس. ما انرفع للمكتبة المشتركة.' }),
       actions)));
 }
@@ -1023,6 +1027,100 @@ function applyUI() {
   $('#addBtn').hidden = !add; $('#drop').hidden = !add;
   $('#dropHint').textContent = 'أي كتاب تضيفه يطلع لكل اللي عندهم حساب في الموقع. ملاحظات كل واحد خاصة فيه.';
   $('#libNote').textContent = add ? '' : 'هذي مكتبة مشتركة. الكتب يضيفها صاحب المكتبة، وتظليلك وملاحظاتك خاصة فيك.';
+}
+
+/* ================= PDF -> diacritized text book ================= */
+// Turns a PDF into a text book (packed JSON, one chapter per page) with full
+// tashkeel, so every word can be selected and copied. Progress is kept on
+// this device, so a stopped or rate-limited run picks up where it left off.
+const TSH_SUFFIX = '-tsh', TSH_BATCH = 3;
+const CONV = new Map();
+function convSet(id, patch) { CONV.set(id, Object.assign(CONV.get(id) || {}, patch)); if ($('#readView').hidden) renderLibrary(); }
+function pageHtml(n, text) {
+  const paras = String(text).split(/\n+/).map(t => t.trim()).filter(Boolean);
+  return `<h3>صفحة ${num(n)}</h3>` + (paras.length ? paras.map(t => `<p>${escHtml(t)}</p>`).join('') : '<p>—</p>');
+}
+async function pdfPageJpeg(pdf, n) {
+  const page = await pdf.getPage(n); const v = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(2, 1400 / v.width) });
+  const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85)); c.width = c.height = 0;
+  return blob;
+}
+function splitPages(text, nums) {
+  const out = new Map();
+  const re = /^\s*\[\[\s*صفحة\s+([0-9٠-٩]+)\s*\]\]\s*$/gm;
+  const marks = []; let m;
+  while ((m = re.exec(text))) marks.push({ n: +m[1].replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)), at: m.index, end: re.lastIndex });
+  marks.forEach((mk, i) => { if (nums.includes(mk.n)) out.set(mk.n, text.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : text.length).trim()); });
+  return out;
+}
+async function convertBook(id) {
+  const b = S.books.get(id); if (!b || !canAdd()) return;
+  if (!window.pdfjsLib) { toast('مكتبة PDF ما تحمّلت. حدّث الصفحة.'); return; }
+  const key = 'tsh:' + id;
+  const st = (await IDB.get('text', key)) || { pages: {}, tries: {} };
+  convSet(id, { running: true, stop: false, err: false, msg: 'يجهّز الكتاب…' });
+  let pdf;
+  try {
+    const file = await loadBookFile(b);
+    pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, useSystemFonts: true }).promise;
+  } catch (e) { convSet(id, { running: false, err: true, msg: 'ما قدرت أفتح الـ PDF.' }); return; }
+  const N = pdf.numPages;
+  const done = () => Object.keys(st.pages).length;
+  try {
+    while (done() < N) {
+      if (CONV.get(id).stop) { convSet(id, { running: false, msg: `وقّفته عند ${num(done())} من ${num(N)} صفحة. اضغط «حوّله» يكمل من مكانه.` }); return; }
+      const todo = []; for (let n = 1; n <= N && todo.length < TSH_BATCH; n++) if (st.pages[n] == null) todo.push(n);
+      const batch = todo.some(n => (st.tries[n] || 0) >= 1) ? todo.slice(0, 1) : todo;
+      const texts = [];
+      for (const n of batch) texts.push((pdfPageText((await (await pdf.getPage(n)).getTextContent()).items) || '').trim());
+      const scanned = texts.some(t => t.replace(/\s/g, '').length < 40);
+      const n0 = batch[0];
+      if ((st.tries[n0] || 0) >= 3) { st.pages[n0] = texts[0]; await IDB.put('text', key, st); continue; }
+      convSet(id, { msg: `يشكّل صفحة ${num(n0)}${batch.length > 1 ? '–' + num(batch[batch.length - 1]) : ''} من ${num(N)}…` });
+      const imgs = scanned ? await Promise.all(batch.map(n => pdfPageJpeg(pdf, n))) : null;
+      const prompt = `أنت مدقق لغوي متخصص في ضبط النصوص العربية بالشكل.
+اكتب صفحات كتاب «${b.title}» التالية كما هي حرفياً، مع التشكيل الكامل الصحيح على كل حرف حسب الإعراب.
+القواعد:
+- لا تغيّر ولا تحذف ولا تضيف أي كلمة. فقط أضف التشكيل.
+- إذا كان النص المستخرج فيه حروف مقطعة أو كلمات بترتيب معكوس بسبب ملف PDF، رتّبه كما هو في الكتاب الأصلي.
+- حافظ على الفقرات (سطر لكل فقرة). اترك أرقام الحواشي كما هي، وتجاهل رأس الصفحة وتذييلها المتكرر.
+- الكلام غير العربي يبقى كما هو.
+- ابدأ كل صفحة بسطر مستقل بالشكل [[صفحة رقمها]] بالأرقام الإنجليزية، ثم نصها المشكّل.
+- أرجع الصفحات فقط، بدون أي مقدمة أو شرح أو Markdown.
+${GUARD}
+${imgs ? `الصفحات ${batch.join('، ')} مرفقة كصور بالترتيب. انسخ نصها من الصور.` : ''}
+<book>
+${imgs ? '' : batch.map((n, i) => `[[صفحة ${n}]]\n${texts[i]}`).join('\n\n')}
+</book>`;
+      let res;
+      try { res = await AI(prompt, { images: imgs || undefined }); }
+      catch (e) {
+        if (e && e.text) res = { text: e.text };
+        if (e && e.code === 'rate_limited') { convSet(id, { running: false, err: true, msg: `وصلت حد Claude لليوم بعد ${num(done())} من ${num(N)} صفحة. اضغط «حوّله» بكرة ويكمل من مكانه.` }); return; }
+        if (!res) throw e;
+      }
+      const got = splitPages(res.text, batch);
+      for (const n of batch) { if (got.get(n)) st.pages[n] = got.get(n); else st.tries[n] = (st.tries[n] || 0) + 1; }
+      await IDB.put('text', key, st);
+    }
+    convSet(id, { msg: 'يرفع النسخة المشكّلة للمكتبة…' });
+    const chapters = []; for (let n = 1; n <= N; n++) chapters.push({ title: `صفحة ${num(n)}`, html: pageHtml(n, st.pages[n]) });
+    const nid = id + TSH_SUFFIX, title = `${b.title} (مشكّل)`, path = `${nid}.json`;
+    const blob = new Blob([JSON.stringify({ v: 1, title, chapters })], { type: 'application/json' });
+    const up = await sb.storage.from(BUCKET).upload(path, blob, { contentType: 'application/json', upsert: true });
+    if (up.error) throw up.error;
+    const { error } = await sb.from('midad_books').upsert({ id: nid, title, format: 'epub', storage_path: path, packed: 'json', size: blob.size });
+    if (error) throw error;
+    await IDB.del('text', key);
+    CONV.delete(id); await loadLibrary();
+    toast(`انضاف «${title}» للمكتبة. تقدر تحدد وتنسخ أي نص فيه.`, 6000);
+  } catch (e) {
+    console.warn(e);
+    convSet(id, { running: false, err: true, msg: `${errText(e)} (خلص ${num(done())} من ${num(N)} صفحة، يكمل من مكانه لو ضغطت «حوّله»)` });
+  } finally { pdf && pdf.destroy(); if (CONV.has(id)) CONV.get(id).running = false; }
 }
 
 /* ================= readers ================= */
