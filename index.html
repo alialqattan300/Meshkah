@@ -263,6 +263,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
             <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
             أضف كتاب
           </label>
+          <button class="btn" id="convAllBtn" type="button" hidden>حوّل كل الكتب لنص مشكّل</button>
           <input id="fileInput" type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple>
         </div>
       </header>
@@ -748,6 +749,9 @@ function titleMatch(title, q) {
 }
 function renderLibrary() {
   const shelf = $('#shelf'); shelf.textContent = '';
+  const left = pdfsToConvert();
+  $('#convAllBtn').hidden = !canAdd() || (!convAll.running && !left.length);
+  $('#convAllBtn').textContent = convAll.running ? 'وقّف تحويل الكل' : `حوّل كل الكتب لنص مشكّل (${num(left.length)})`;
   const q = $('#libQ').value.trim();
   const all = [...S.books.values()].sort((a, b) => (b.lastRead || b.addedAt || 0) - (a.lastRead || a.addedAt || 0));
   const books = all.filter(b => titleMatch(b.title || '', q));
@@ -1035,6 +1039,7 @@ function applyUI() {
 // this device, so a stopped or rate-limited run picks up where it left off.
 const TSH_SUFFIX = '-tsh', TSH_BATCH = 3;
 const CONV = new Map();
+$('#convAllBtn').addEventListener('click', convertAll);
 function convSet(id, patch) { CONV.set(id, Object.assign(CONV.get(id) || {}, patch)); if ($('#readView').hidden) renderLibrary(); }
 function pageHtml(n, text) {
   const paras = String(text).split(/\n+/).map(t => t.trim()).filter(Boolean);
@@ -1055,6 +1060,27 @@ function splitPages(text, nums) {
   while ((m = re.exec(text))) marks.push({ n: +m[1].replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)), at: m.index, end: re.lastIndex });
   marks.forEach((mk, i) => { if (nums.includes(mk.n)) out.set(mk.n, text.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : text.length).trim()); });
   return out;
+}
+function pdfsToConvert() {
+  return [...S.books.values()].filter(b => b.format === 'pdf' && b.assetId && !b.pendingUpload && !S.books.has(b.id + TSH_SUFFIX));
+}
+const convAll = { running: false, stop: false };
+async function convertAll() {
+  if (convAll.running) { convAll.stop = true; for (const c of CONV.values()) c.stop = true; return; }
+  convAll.running = true; convAll.stop = false; renderLibrary();
+  let n = 0;
+  try {
+    for (const b of pdfsToConvert()) {
+      if (convAll.stop) break;
+      await convertBook(b.id);
+      if (!S.books.has(b.id + TSH_SUFFIX)) break; // stopped, hit the daily limit, or failed: its card says why
+      n++;
+    }
+  } finally {
+    convAll.running = false; renderLibrary();
+    const left = pdfsToConvert().length;
+    toast(left ? `تحوّل ${num(n)} كتاب. باقي ${num(left)}، اضغط «حوّل كل الكتب» يكمل.` : 'تحوّلت كل الكتب.', 7000);
+  }
 }
 async function convertBook(id) {
   const b = S.books.get(id); if (!b || !canAdd()) return;
