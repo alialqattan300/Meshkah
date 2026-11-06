@@ -191,6 +191,8 @@ textarea { width: 100%; min-height: 64px; resize: vertical; }
 .empty { color: var(--muted); font-size: 13px; margin: 0; }
 .md { font-family: var(--f-read); font-size: 16px; line-height: 1.95; overflow-wrap: anywhere; }
 .md h4 { font-family: var(--f-ui); font-size: 15px; margin: 1em 0 .2em; color: var(--accent); }
+.tsh { font-family: var(--f-read); font-size: calc(19px * var(--fs, 1)); line-height: 2.3; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; margin-top: 8px; }
+.tsh .pg { display: block; font-family: var(--f-ui); font-size: 13px; color: var(--accent); margin: 1em 0 .2em; }
 .md p { margin: .4em 0; } .md ul { margin: .3em 0; padding-inline-start: 1.3em; }
 details.item summary { cursor: pointer; font-weight: 500; }
 
@@ -305,6 +307,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
         <button class="btn" data-open="search">بحث</button>
         <button class="btn" data-open="notes">ملاحظاتي</button>
         <button class="btn" data-open="summary">لخّص</button>
+        <button class="btn" data-open="tashkeel">تشكيل</button>
         <button class="btn" data-open="quiz">اختبرني</button>
         <button class="btn" id="zoomOut" aria-label="تصغير">−</button>
         <button class="btn" id="zoomIn" aria-label="تكبير">+</button>
@@ -320,6 +323,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
             <button role="tab" data-tab="search">بحث</button>
             <button role="tab" data-tab="notes">ملاحظاتي</button>
             <button role="tab" data-tab="summary">تلخيص</button>
+            <button role="tab" data-tab="tashkeel">تشكيل</button>
             <button role="tab" data-tab="quiz">اختبار</button>
           </nav>
           <button class="btn ghost small" id="drawerClose" aria-label="سكّر">
@@ -394,6 +398,25 @@ details.item summary { cursor: pointer; font-weight: 500; }
             </div>
           </div>
 
+          <!-- tashkeel -->
+          <div class="panel" data-panel="tashkeel" hidden>
+            <p class="hint">يكتب لك النص بالتشكيل الكامل، كنص عادي تقدر تحدده وتنسخه. الصفحات الممسوحة يقراها من الصورة.</p>
+            <div class="field">
+              <span class="lbl">وش أشكّل؟</span>
+              <div class="chips" id="tshScope"></div>
+              <div class="row" id="tshRange" hidden></div>
+            </div>
+            <div class="row">
+              <button class="btn primary" id="tshBtn">شكّل</button>
+              <button class="btn" id="tshStop" hidden>وقّف</button>
+            </div>
+            <div class="status" id="tshStatus"></div>
+            <div class="tsh" id="tshOut"></div>
+            <div class="row" id="tshActs" hidden>
+              <button class="btn primary" id="tshCopy">انسخ الكل</button>
+            </div>
+          </div>
+
           <!-- quiz -->
           <div class="panel" data-panel="quiz" hidden>
             <div id="quizSetup" class="panel">
@@ -440,6 +463,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
     <button class="sw c4" data-c="4" aria-label="ظلّل وردي"></button>
     <span class="sep"></span>
     <button data-act="sum">لخّص</button>
+    <button data-act="tsh">شكّل</button>
     <button data-act="quiz">اختبرني</button>
     <button data-act="search">ابحث</button>
   </div>
@@ -1288,7 +1312,7 @@ async function openBook(id) {
     updatePos();
     buildScopes();
     refreshNotes();
-    resetSummary(); resetQuiz();
+    resetSummary(); resetQuiz(); resetTashkeel();
     if (R.kind === 'pdf') {
       ro = new ResizeObserver(debounce(() => { if (S.cur === cur) R.relayout(); }, 250));
       ro.observe(scroller);
@@ -1379,6 +1403,7 @@ $('#selbar').addEventListener('click', e => {
   const act = btn.dataset.act; hideSelbar();
   if (act === 'search') { openDrawer('search'); $('#q').value = S.lastSel.text.slice(0, 80); runSearch(); }
   if (act === 'sum') { openDrawer('summary'); setChip('#sumScope', 'selection'); runSummary(); }
+  if (act === 'tsh') { openDrawer('tashkeel'); setChip('#tshScope', 'selection'); onScopeChange('tsh'); runTashkeel(); }
   if (act === 'quiz') { openDrawer('quiz'); setChip('#quizScope', 'selection'); onScopeChange('quiz'); }
 });
 
@@ -1417,10 +1442,11 @@ function bindChips(sel, multi, onChange) {
 /* ================= scopes (summary + quiz) ================= */
 function buildScopes() {
   const R = S.cur.R;
-  for (const k of ['sum', 'quiz']) {
+  for (const k of ['sum', 'quiz', 'tsh']) {
     const box = $(`#${k}Scope`); box.textContent = '';
     const unit = R.kind === 'pdf' ? 'الصفحة الحالية' : 'الفصل الحالي';
     [['selection', 'النص المحدد'], ['current', unit], ['range', R.kind === 'pdf' ? 'نطاق صفحات' : 'نطاق فصول'], ['sofar', 'من البداية لين مكاني']]
+      .filter(([v]) => !(k === 'tsh' && v === 'sofar'))
       .forEach(([v, t]) => box.append(el('button', { type: 'button', 'data-v': v, 'aria-pressed': String(v === 'current') }, t)));
     const rg = $(`#${k}Range`); rg.textContent = '';
     const word = R.kind === 'pdf' ? 'صفحة' : 'فصل';
@@ -1430,7 +1456,7 @@ function buildScopes() {
   updateSelScope();
 }
 function updateSelScope() {
-  for (const k of ['sum', 'quiz']) {
+  for (const k of ['sum', 'quiz', 'tsh']) {
     const b = $(`#${k}Scope [data-v="selection"]`); if (!b) continue;
     b.disabled = !S.lastSel;
     if (b.disabled && b.getAttribute('aria-pressed') === 'true') setChip(`#${k}Scope`, 'current');
@@ -1443,6 +1469,7 @@ function onScopeChange(k) {
 }
 bindChips('#sumScope', false, () => onScopeChange('sum'));
 bindChips('#quizScope', false, () => onScopeChange('quiz'));
+bindChips('#tshScope', false, () => onScopeChange('tsh'));
 bindChips('#sumLen', false);
 bindChips('#quizTypes', true);
 bindChips('#quizDiff', false);
@@ -1611,6 +1638,63 @@ $('#sumSave').addEventListener('click', () => {
   toast('انحفظ الملخص في «ملاحظاتي»');
 });
 $('#sumCopy').addEventListener('click', () => lastSummary && copyText(lastSummary.text));
+
+/* ---- tashkeel ---- */
+const TSH_MAX_UNITS = 4;
+let tshCtl = null, lastTsh = '';
+function resetTashkeel() { $('#tshOut').textContent = ''; $('#tshStatus').textContent = ''; $('#tshStatus').className = 'status'; $('#tshActs').hidden = true; lastTsh = ''; }
+function showTsh(text) {
+  const out = $('#tshOut'); out.textContent = '';
+  for (const part of text.split(/(^\[[^\]\n]{1,40}\]$)/m)) {
+    if (/^\[[^\]\n]{1,40}\]$/.test(part)) out.append(el('span', { class: 'pg', text: part.slice(1, -1) }));
+    else if (part) out.append(document.createTextNode(part.replace(/^\n+/, '')));
+  }
+}
+async function runTashkeel() {
+  if (!S.cur) return;
+  const status = $('#tshStatus');
+  resetTashkeel();
+  const sample = await getSampler();
+  const { images } = await sampleLimits(sample);
+  if (chipVal('#tshScope') === 'range') {
+    const f = parseInt($('#tshFrom').value, 10) || 1, t = parseInt($('#tshTo').value, 10) || 1;
+    if (Math.abs(t - f) + 1 > TSH_MAX_UNITS) { const R = S.cur.R; $('#tshTo').value = Math.min(R.units, Math.min(f, t) + TSH_MAX_UNITS - 1); $('#tshFrom').value = Math.min(f, t); }
+  }
+  let scope;
+  try { scope = await gatherScope('tsh', 24000); } catch (e) { status.className = 'status err'; status.textContent = e.message; return; }
+  if (scope.units.length > TSH_MAX_UNITS) { status.className = 'status err'; status.textContent = `أقدر أشكّل ${num(TSH_MAX_UNITS)} صفحات بالمرة. اختر نطاق أصغر.`; return; }
+  const imgs = await scannedImages(scope, S.cur.R, images);
+  if (!imgs && scope.text.replace(/\[[^\]]*\]/g, '').trim().length < 2) { status.className = 'status err'; status.textContent = 'ما لقيت نص في هالجزء.'; return; }
+  const prompt = `أنت مدقق لغوي متخصص في ضبط النصوص العربية بالشكل.
+المطلوب: اكتب النص التالي من كتاب «${S.cur.b.title}» (${scope.label}) كما هو حرفياً، مع وضع التشكيل الكامل الصحيح على كل حرف (الفتحة والضمة والكسرة والسكون والشدة والتنوين وهمزات القطع)، حسب الإعراب الصحيح.
+القواعد:
+- لا تغيّر ولا تحذف ولا تضيف أي كلمة، ولا تصحح المعنى. فقط أضف التشكيل.
+- إذا كان النص المستخرج فيه حروف مقطعة أو كلمات بترتيب معكوس بسبب ملف PDF، رتّبه كما هو في الكتاب الأصلي.
+- حافظ على تقسيم الفقرات. اترك أرقام الصفحات والحواشي كما هي.
+- اترك سطور العناوين اللي بين قوسين مربعين مثل [صفحة ٣] كما هي في سطر مستقل بدون تشكيل.
+- الكلام غير العربي يبقى كما هو.
+- أرجع النص المشكّل فقط، بدون أي مقدمة أو شرح أو Markdown.
+${GUARD}
+${imgs ? 'الصفحات مرفقة كصور لأنها ممسوحة ضوئياً. انسخ النص من الصور حرفياً مع التشكيل، وابدأ كل صفحة بسطر [صفحة رقمها].' : ''}
+<book>
+${imgs ? '' : scope.text}
+</book>`;
+  status.textContent = `يشكّل ${scope.label}…`;
+  $('#tshBtn').disabled = true; $('#tshStop').hidden = false;
+  tshCtl = new AbortController();
+  try {
+    const res = await sample(prompt, { signal: tshCtl.signal, onText: ({ text }) => showTsh(text), images: imgs || undefined });
+    lastTsh = res.text.trim(); showTsh(lastTsh);
+    status.textContent = `خلص التشكيل (${scope.label}). حدد أي جزء وانسخه، أو انسخ الكل.`;
+    $('#tshActs').hidden = false;
+  } catch (e) {
+    if (e && e.text) { lastTsh = e.text.trim(); showTsh(lastTsh); $('#tshActs').hidden = !lastTsh; }
+    status.className = 'status err'; status.textContent = errText(e);
+  } finally { $('#tshBtn').disabled = false; $('#tshStop').hidden = true; tshCtl = null; }
+}
+$('#tshBtn').addEventListener('click', runTashkeel);
+$('#tshStop').addEventListener('click', () => tshCtl && tshCtl.abort());
+$('#tshCopy').addEventListener('click', () => lastTsh && copyText(lastTsh.replace(/^\[[^\]\n]{1,40}\]$/gm, '').replace(/\n{3,}/g, '\n\n').trim()));
 
 /* ---- quiz ---- */
 const QTYPE = { mcq: 'اختيار من متعدد', tf: 'صح وخطأ', fill: 'أكمل الفراغ', short: 'إجابة قصيرة' };
