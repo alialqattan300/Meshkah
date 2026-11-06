@@ -6,6 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://gikbfmyiciabrkuikftp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_y3MXoYQ8_ZYySh7MOtRLBw_SMphq4W5';
 const DAILY_LIMIT = Number(process.env.MIDAD_DAILY_LIMIT || 60);
+// Admins convert whole books to diacritized text (3 pages per request), so they get more.
+const ADMIN_DAILY_LIMIT = Number(process.env.MIDAD_ADMIN_DAILY_LIMIT || 400);
 const MODEL = process.env.MIDAD_MODEL || 'claude-opus-5-5';
 const MAX_PROMPT_BYTES = 400000;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -24,8 +26,11 @@ export default async function handler(req, res) {
   if (authError || !auth?.user) return res.status(401).json({ code: 'not_granted' });
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count } = await sb.from('midad_ai_usage').select('id', { count: 'exact', head: true }).gte('created_at', since);
-  if ((count || 0) >= DAILY_LIMIT) return res.status(429).json({ code: 'rate_limited' });
+  const [{ count }, { data: admin }] = await Promise.all([
+    sb.from('midad_ai_usage').select('id', { count: 'exact', head: true }).gte('created_at', since),
+    sb.from('midad_admins').select('user_id').eq('user_id', auth.user.id).maybeSingle(),
+  ]);
+  if ((count || 0) >= (admin ? ADMIN_DAILY_LIMIT : DAILY_LIMIT)) return res.status(429).json({ code: 'rate_limited' });
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : req.body || {};
   const prompt = body.prompt;
