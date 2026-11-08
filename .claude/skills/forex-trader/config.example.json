@@ -1,0 +1,53 @@
+{
+  "account_currency": "USD",
+  "balance": 1000,
+  "demo": true,
+  "risk_pct_per_trade": 1.0,
+  "max_daily_loss_pct": 3.0,
+  "max_trades_per_day": 3,
+  "min_reward_risk": 1.5,
+  "max_leverage": 10,
+  "broker_leverage": 30,
+  "min_lot": 0.01,
+  "lot_step": 0.01,
+  "news_buffer_minutes": 30,
+  "news_impact": [
+    "High"
+  ],
+  "no_entries_friday_after_ny": "15:00",
+  "rollover_ny": [
+    "16:55",
+    "17:10"
+  ],
+  "spread_pips": {
+    "default": 2.0,
+    "EURUSD": 1.0,
+    "USDJPY": 1.0,
+    "GBPUSD": 1.2,
+    "AUDUSD": 1.2,
+    "USDCAD": 1.5,
+    "USDCHF": 1.5,
+    "NZDUSD": 1.8,
+    "EURGBP": 1.5,
+    "EURJPY": 1.8
+  },
+  "pairs": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "USDCHF",
+    "AUDUSD",
+    "USDCAD",
+    "NZDUSD",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
+    "AUDJPY",
+    "EURCHF",
+    "EURAUD",
+    "GBPCHF",
+    "CADJPY"
+  ],
+  "blocked": [],
+  "display_tz": "Asia/Kuwait"
+}
