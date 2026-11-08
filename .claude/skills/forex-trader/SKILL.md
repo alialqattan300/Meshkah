@@ -1,6 +1,6 @@
 ---
 name: forex-trader
-description: Forex day-trading toolkit, demo account only. Tells you if the forex market is open and which sessions (Sydney, Tokyo, London, New York) are on, in Kuwait time. Lists high-impact news (CPI, NFP, rate decisions) from the free ForexFactory calendar. Scans 15 major and cross pairs on daily candles (20-day breakout or breakdown, crossing the 20-day average, RSI oversold or overbought, trend) and for session-range breakouts (the London breakout of the Asian range, the London open, the New York open), long or short. Then it plans the stop and target in pips, replays the trade 10,000 times from the pair's last 60 days plus every past day the same rule fired, sizes the position in lots from your balance and risk percent, and checks it against your limits (news, daily loss, trades a day, leverage, weekend, rollover). It ends with a ticket you type into a demo account yourself, and never places an order. Use when the user says "forex", "فوركس", "عملات", "سوق العملات", "يورو دولار", "EURUSD", "GBPUSD", "USDJPY", "الين", "الباوند", "pips", "نقاط", "لوت", "lot size", "كم لوت", "London breakout", "جلسة لندن", "جلسة نيويورك", "متى يفتح سوق الفوركس", "أخبار الفوركس", "رزنامة اقتصادية", "economic calendar", or asks to scan, plan, size or check a currency trade.
+description: Forex, gold, silver and oil day-trading toolkit, demo account only. Tells you if the market is open and which sessions (Sydney, Tokyo, London, New York) are on, in Kuwait time. Lists high-impact news (CPI, NFP, rate decisions, crude inventories, OPEC) from the free ForexFactory calendar. Scans 15 major and cross pairs plus gold (XAUUSD), silver (XAGUSD), WTI (USOIL) and Brent (UKOIL) on daily candles (20-day breakout or breakdown, crossing the 20-day average, RSI oversold or overbought, trend) and for session-range breakouts (the London breakout of the Asian range, the London open, the New York open), long or short. Then it plans the stop and target in pips, replays the trade 10,000 times from the pair's last 60 days plus every past day the same rule fired, sizes the position in lots from your balance and risk percent, and checks it against your limits (news, daily loss, trades a day, leverage, weekend, rollover). It ends with a ticket you type into a demo account yourself, and never places an order. Use when the user says "forex", "فوركس", "عملات", "سوق العملات", "يورو دولار", "EURUSD", "GBPUSD", "USDJPY", "الين", "الباوند", "pips", "نقاط", "لوت", "lot size", "كم لوت", "gold", "ذهب", "الذهب", "XAUUSD", "فضة", "silver", "oil", "نفط", "النفط", "برنت", "Brent", "WTI", "USOIL", "London breakout", "جلسة لندن", "جلسة نيويورك", "متى يفتح سوق الفوركس", "أخبار الفوركس", "رزنامة اقتصادية", "economic calendar", or asks to scan, plan, size or check a currency trade.
 ---
 
 # forex-trader
@@ -23,7 +23,7 @@ $FX init --balance 1000 --currency USD        # once -> forex/config.json (demo:
 $FX sessions                                  # open? which sessions? next open, Kuwait time
 $FX calendar --hours 48                       # High-impact news for your pairs
 $FX calendar --impact High,Medium --pairs EURUSD,GBPUSD
-$FX scan daily                                # all 15 pairs on daily candles
+$FX scan daily                                # 15 pairs + gold, silver, WTI, Brent
 $FX scan session --range asia                 # London breakout of the Asian range
 $FX scan session --range london               # London open, first 30 minutes
 $FX scan session --range ny                   # New York open, first 30 minutes
@@ -56,6 +56,33 @@ otherwise, with the reason in one plain line.
 
 The tool does the daylight-saving shifts itself with zoneinfo; never work
 them out by hand.
+
+## Gold, silver and oil
+
+Names: `gold`, `XAUUSD`, `silver`, `XAGUSD`, `oil` / `WTI` / `USOIL`,
+`brent` / `UKOIL` (also ذهب, فضة, نفط, برنت).
+
+| | price from | 1 pip | 1 lot | pip value a lot | default spread |
+| --- | --- | --- | --- | --- | --- |
+| XAUUSD gold | GC=F future | 0.10 | 100 oz | $10 | 3 pips ($0.30) |
+| XAGUSD silver | SI=F future | 0.01 | 5,000 oz | $50 | 3 pips ($0.03) |
+| USOIL WTI | CL=F future | 0.01 | 1,000 barrels | $10 | 3 pips ($0.03) |
+| UKOIL Brent | BZ=F future | 0.01 | 1,000 barrels | $10 | 4 pips ($0.04) |
+
+- Yahoo has no free spot price for these, so the tool reads the front-month
+  future. A broker's spot or CFD price sits a little away from it and the
+  future jumps at a monthly roll. That is why the ticket gives the stop and
+  target as **distances**: set them from your own entry price on the broker.
+- Lot sizes differ between brokers (some oil CFDs are 100 barrels a lot).
+  If the user's broker differs, set `"contract_size": {"USOIL": 100}` in
+  `forex/config.json`. Check the broker's contract spec.
+- Hours (CME Globex): Sun 18:00 to Fri 17:00 New York, closed every day
+  17:00 to 18:00 New York (01:00 to 02:00 Kuwait in winter). The risk check
+  blocks entries in that break.
+- News: gold and silver follow USD news. Oil also counts any crude
+  inventories or OPEC item in the calendar, whatever its impact rating.
+- Sizes get big fast: one lot of gold is over $400,000 of metal. With a
+  small account, expect 0.01 lot and a leverage cap.
 
 ## What each step does
 
@@ -129,5 +156,5 @@ them out by hand.
   only when the user asks, and say what changed.
 - A stop is a plan, not a guarantee: news and the weekend can gap past it.
   The loss shown is the loss at the stop price plus the spread.
-- Not covered: gold and metals (XAU), crypto, exotics, swaps or overnight
-  financing, and holidays. Close it the same day.
+- Not covered: platinum and other metals, natural gas, crypto, exotics,
+  swaps or overnight financing, and holidays. Close it the same day.

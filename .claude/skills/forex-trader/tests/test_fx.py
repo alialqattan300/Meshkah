@@ -35,7 +35,7 @@ class Basics(unittest.TestCase):
     def test_pairs(self):
         self.assertEqual(fx.norm_pair("eur/usd"), "EURUSD")
         self.assertEqual(fx.norm_pair("USDJPY=X"), "USDJPY")
-        for bad in ("EURXYZ", "EUREUR", "EURUS", "XAUUSD"):
+        for bad in ("EURXYZ", "EUREUR", "EURUS", "BTCUSD", "XPTUSD"):
             with self.assertRaises(fx.FxError):
                 fx.norm_pair(bad)
 
@@ -256,7 +256,7 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(code, 0, out)
             self.assertIn("history: the same asia rule fired short", out)
             code, out = run("--dir", D, "size", "--offline", CHARTS, "--write")
-            self.assertIn("0.03 lots short EURUSD", out)
+            self.assertIn("0.03 lots short EUR/USD", out)
             code, out = run("--dir", D, "risk", "--calendar", CAL, "--now", "2026-11-10T13:20:00+00:00")
             self.assertEqual(code, 1)
             self.assertIn("High news within 30 min: USD", out)
@@ -275,6 +275,53 @@ class EndToEnd(unittest.TestCase):
             src = f.read().lower()
         for word in ("alpaca", "oanda", "metatrader", "place_order", "api_key", "password"):
             self.assertNotIn(word, src)
+
+
+class MetalsAndOil(unittest.TestCase):
+    def test_names(self):
+        for k, v in (("gold", "XAUUSD"), ("XAU/USD", "XAUUSD"), ("silver", "XAGUSD"), ("oil", "USOIL"),
+                     ("WTI", "USOIL"), ("brent", "UKOIL"), ("\u0630\u0647\u0628", "XAUUSD"), ("\u0646\u0641\u0637", "USOIL")):
+            self.assertEqual(fx.norm_pair(k), v)
+        self.assertEqual(fx.yahoo("XAUUSD"), "GC=F")
+        self.assertEqual(fx.yahoo("UKOIL"), "BZ=F")
+        self.assertEqual(fx.yahoo("EURUSD"), "EURUSD=X")
+        self.assertEqual(fx.label("USOIL"), "WTI oil (USOIL)")
+        self.assertEqual(fx.quote_ccy("XAGUSD"), "USD")
+
+    def test_hours_have_a_daily_break(self):
+        wed_1730_ny = utc(2026, 11, 4, 22, 30)
+        self.assertTrue(fx.market_open(wed_1730_ny, "EURUSD"))
+        self.assertFalse(fx.market_open(wed_1730_ny, "XAUUSD"))
+        self.assertTrue(fx.market_open(utc(2026, 11, 4, 23, 0), "XAUUSD"))
+        sun_1730_ny = utc(2026, 11, 8, 22, 30)
+        self.assertTrue(fx.market_open(sun_1730_ny, "EURUSD"))
+        self.assertFalse(fx.market_open(sun_1730_ny, "USOIL"))
+
+    def test_gold_size(self):
+        p = fx.make_plan("XAUUSD", "long", 4074.90, "pips:60", "2R", CFG)
+        self.assertEqual((p["stop"], p["stop_pips"]), (4068.9, 60.0))
+        o = fx.size_order(p, CFG, 1.0, balance=1000, risk_pct=1)
+        # 10 USD / ((60 + 3) pips * 0.1 * 1 oz) = 1.58 oz -> 0.01 lot (1 oz)
+        self.assertEqual((o["lots"], o["units"], o["pip_value_per_lot"]), (0.01, 1, 10.0))
+        self.assertAlmostEqual(o["loss_at_stop"], 6.3)
+
+    def test_oil_size_and_contract_override(self):
+        p = fx.make_plan("USOIL", "short", 90.84, "pips:87", "2R", CFG)
+        self.assertEqual(p["stop"], 91.71)
+        o = fx.size_order(p, CFG, 1.0, balance=1000, risk_pct=1)
+        self.assertEqual((o["lots"], o["units"]), (0.01, 10))
+        cfg = dict(CFG, contract_size={"USOIL": 100})
+        o2 = fx.size_order(p, cfg, 1.0, balance=1000, risk_pct=1)
+        self.assertEqual((o2["lots"], o2["units"]), (0.11, 11))  # 10 / (90 pips * 0.01) = 11.1 barrels
+
+    def test_oil_news(self):
+        with open(CAL) as f:
+            ev = fx.parse_calendar(json.load(f))
+        crude = [e for e in ev if "Crude" in e["title"]][0]
+        t = dt.datetime.fromisoformat(crude["time"])
+        self.assertTrue(fx.news_near(ev, "USOIL", t, 30, ["High"]))
+        self.assertFalse(fx.news_near(ev, "XAUUSD", t, 30, ["High"]))
+        self.assertFalse(fx.news_near(ev, "EURGBP", t, 30, ["High"]))
 
 
 if __name__ == "__main__":

@@ -50,7 +50,23 @@ STEP = 300  # 5-minute bars
 
 CURRENCIES = ("USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD")
 DEFAULT_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD",
-                 "EURJPY", "GBPJPY", "EURGBP", "AUDJPY", "EURCHF", "EURAUD", "GBPCHF", "CADJPY"]
+                 "EURJPY", "GBPJPY", "EURGBP", "AUDJPY", "EURCHF", "EURAUD", "GBPCHF", "CADJPY",
+                 "XAUUSD", "XAGUSD", "USOIL", "UKOIL"]
+
+# Metals and oil, as most CFD brokers quote them. Yahoo has no free spot
+# feed for these, so prices come from the front-month COMEX/NYMEX future,
+# which sits a little away from a broker's spot price (and jumps at a roll).
+# pip: the move this tool calls one pip; contract: units in one lot.
+INSTRUMENTS = {
+    "XAUUSD": {"name": "Gold", "yahoo": "GC=F", "pip": 0.1, "digits": 2, "contract": 100, "unit": "oz"},
+    "XAGUSD": {"name": "Silver", "yahoo": "SI=F", "pip": 0.01, "digits": 3, "contract": 5000, "unit": "oz"},
+    "USOIL": {"name": "WTI oil", "yahoo": "CL=F", "pip": 0.01, "digits": 2, "contract": 1000, "unit": "barrels", "oil": True},
+    "UKOIL": {"name": "Brent oil", "yahoo": "BZ=F", "pip": 0.01, "digits": 2, "contract": 1000, "unit": "barrels", "oil": True},
+}
+ALIASES = {"GOLD": "XAUUSD", "XAU": "XAUUSD", "GC": "XAUUSD", "SILVER": "XAGUSD", "XAG": "XAGUSD", "SI": "XAGUSD",
+           "OIL": "USOIL", "WTI": "USOIL", "CRUDE": "USOIL", "CL": "USOIL", "XTIUSD": "USOIL", "WTIUSD": "USOIL",
+           "BRENT": "UKOIL", "BZ": "UKOIL", "XBRUSD": "UKOIL", "BRENTUSD": "UKOIL",
+           "\u0630\u0647\u0628": "XAUUSD", "\u0641\u0636\u0629": "XAGUSD", "\u0646\u0641\u0637": "USOIL", "\u0628\u0631\u0646\u062a": "UKOIL"}
 
 DEFAULT_CONFIG = {
     "account_currency": "USD",
@@ -70,7 +86,9 @@ DEFAULT_CONFIG = {
     "rollover_ny": ["16:55", "17:10"],
     "spread_pips": {"default": 2.0, "EURUSD": 1.0, "USDJPY": 1.0, "GBPUSD": 1.2,
                     "AUDUSD": 1.2, "USDCAD": 1.5, "USDCHF": 1.5, "NZDUSD": 1.8,
-                    "EURGBP": 1.5, "EURJPY": 1.8},
+                    "EURGBP": 1.5, "EURJPY": 1.8,
+                    "XAUUSD": 3.0, "XAGUSD": 3.0, "USOIL": 3.0, "UKOIL": 4.0},
+    "contract_size": {},
     "pairs": DEFAULT_PAIRS,
     "blocked": [],
     "display_tz": "Asia/Kuwait",
@@ -93,18 +111,56 @@ class FxError(Exception):
 # ----------------------------------------------------------------- basics
 
 def norm_pair(s):
-    p = str(s).upper().replace("/", "").replace("=X", "").replace("_", "").replace("-", "").strip()
+    raw = str(s).strip()
+    p = raw.upper().replace("/", "").replace("=X", "").replace("_", "").replace("-", "").replace(" ", "")
+    p = ALIASES.get(p, ALIASES.get(raw, p))
+    if p in INSTRUMENTS:
+        return p
     if len(p) != 6 or p[:3] not in CURRENCIES or p[3:] not in CURRENCIES or p[:3] == p[3:]:
-        raise FxError("%r is not a pair this skill knows (two of %s, like EURUSD)." % (s, ", ".join(CURRENCIES)))
+        raise FxError("%r is not something this skill knows: two of %s (like EURUSD), or %s."
+                      % (s, ", ".join(CURRENCIES), ", ".join(INSTRUMENTS)))
     return p
 
 
+def is_cfd(pair):
+    return pair in INSTRUMENTS
+
+
 def pip_size(pair):
+    if is_cfd(pair):
+        return INSTRUMENTS[pair]["pip"]
     return 0.01 if pair.endswith("JPY") else 0.0001
 
 
 def digits(pair):
+    if is_cfd(pair):
+        return INSTRUMENTS[pair]["digits"]
     return 3 if pair.endswith("JPY") else 5
+
+
+def yahoo(pair):
+    return INSTRUMENTS[pair]["yahoo"] if is_cfd(pair) else pair + "=X"
+
+
+def quote_ccy(pair):
+    return "USD" if is_cfd(pair) else pair[3:]
+
+
+def news_ccys(pair):
+    return {"USD"} if is_cfd(pair) else {pair[:3], pair[3:]}
+
+
+def label(pair):
+    if is_cfd(pair):
+        return "%s (%s)" % (INSTRUMENTS[pair]["name"], pair)
+    return "%s/%s" % (pair[:3], pair[3:])
+
+
+def contract(pair, cfg=None):
+    over = ((cfg or {}).get("contract_size") or {}).get(pair)
+    if over:
+        return float(over)
+    return float(INSTRUMENTS[pair]["contract"]) if is_cfd(pair) else float(LOT)
 
 
 def fmt(pair, x):
@@ -113,7 +169,8 @@ def fmt(pair, x):
 
 def round_price(pair, x, mode):
     q = Decimal(1).scaleb(-digits(pair))
-    return float(Decimal(repr(x)).quantize(q, rounding=mode))
+    # round off float noise first, so 90.84 + 0.87 does not ceil to 91.72
+    return float(Decimal(repr(round(x, digits(pair) + 4))).quantize(q, rounding=mode))
 
 
 def pips(pair, a, b):
@@ -143,14 +200,19 @@ def fx_day(t):
     return (t.astimezone(NY) + dt.timedelta(hours=7)).date()
 
 
-def market_open(t):
+def market_open(t, pair=None):
+    """Forex: Sun 17:00 to Fri 17:00 New York. Metals and oil (CME Globex):
+    Sun 18:00 to Fri 17:00, with a daily break from 17:00 to 18:00."""
     n = t.astimezone(NY)
     wd = n.weekday()  # Mon 0 .. Sun 6
+    sunday_open = dt.time(18, 0) if pair and is_cfd(pair) else dt.time(17, 0)
     if wd == 5:
         return False
     if wd == 4 and n.time() >= dt.time(17, 0):
         return False
-    if wd == 6 and n.time() < dt.time(17, 0):
+    if wd == 6 and n.time() < sunday_open:
+        return False
+    if pair and is_cfd(pair) and dt.time(17, 0) <= n.time() < dt.time(18, 0):
         return False
     return True
 
@@ -315,7 +377,7 @@ def last_price(data, symbol):
 
 def quote_rate(data, pair, acct, override=None):
     """How many account-currency units one unit of the quote currency is worth."""
-    q = pair[3:]
+    q = quote_ccy(pair)
     if override:
         return float(override)
     if q == acct:
@@ -495,20 +557,21 @@ def size_order(plan, cfg, rate, balance=None, risk_pct=None, risk_amount=None):
     step, mn = float(cfg["lot_step"]), float(cfg["min_lot"])
     limit = "max loss per trade" if units_risk <= units_lev else "max leverage"
     units = min(units_risk, units_lev)
-    lots = math.floor(units / LOT / step + 1e-9) * step
+    size = contract(pair, cfg)
+    lots = math.floor(units / size / step + 1e-9) * step
     lots = round(lots, 8)
     acct = cfg["account_currency"]
     if lots < mn:
-        min_loss = mn * LOT * loss_pips * pv_unit
+        min_loss = mn * size * loss_pips * pv_unit
         raise FxError("the smallest lot (%.2f) would lose %.2f %s at the stop, over your %.2f %s (%s). "
                       "Use a closer stop or skip it." % (mn, min_loss, acct, budget, acct, limit))
-    u = lots * LOT
+    u = lots * size
     notional = u * plan["entry"] * rate
     order = dict(plan)
     order.update({
         "lots": round(lots, 2), "units": int(round(u)), "account_currency": acct, "balance": bal,
         "risk_budget": round(budget, 2), "decided_by": limit,
-        "pip_value_per_lot": round(pip_size(pair) * LOT * rate, 4),
+        "pip_value_per_lot": round(pip_size(pair) * size * rate, 4), "contract": size,
         "loss_at_stop": round(u * loss_pips * pv_unit, 2),
         "gain_at_target": round(u * (plan["target_pips"] - spread) * pv_unit, 2),
         "notional": round(notional, 2), "effective_leverage": round(notional / bal, 2),
@@ -566,12 +629,14 @@ def fx_week(t):
 
 
 def news_near(events, pair, now, buffer_min, impacts):
-    cur = {pair[:3], pair[3:]}
+    cur = news_ccys(pair)
+    oil = is_cfd(pair) and INSTRUMENTS[pair].get("oil")
     lo, hi = now - dt.timedelta(minutes=buffer_min), now + dt.timedelta(minutes=buffer_min)
     hits = []
     for e in events:
         t = dt.datetime.fromisoformat(e["time"])
-        if e["currency"] in cur and e["impact"] in impacts and lo <= t <= hi:
+        oil_news = oil and any(w in e["title"].lower() for w in ("crude", "opec"))
+        if (oil_news or (e["currency"] in cur and e["impact"] in impacts)) and lo <= t <= hi:
             hits.append(e)
     return hits
 
@@ -775,12 +840,14 @@ def cmd_calendar(a, store, cfg):
     now = parse_now(a.now, ZoneInfo(cfg["display_tz"]))
     ev, src = fetch_calendar(store, now, a.offline)
     imp = [x.strip().title() for x in a.impact.split(",")]
-    cur = set()
+    cur, oil = set(), False
     for p in (a.pairs.split(",") if a.pairs else cfg["pairs"]):
         p = norm_pair(p)
-        cur |= {p[:3], p[3:]}
+        cur |= news_ccys(p)
+        oil = oil or (is_cfd(p) and INSTRUMENTS[p].get("oil"))
     hi = now + dt.timedelta(hours=a.hours)
-    sel = [e for e in ev if e["impact"] in imp and e["currency"] in cur
+    sel = [e for e in ev if ((e["impact"] in imp and e["currency"] in cur)
+                             or (oil and any(w in e["title"].lower() for w in ("crude", "opec"))))
            and now - dt.timedelta(minutes=30) <= dt.datetime.fromisoformat(e["time"]) <= hi]
     print("News calendar (%s, ForexFactory week %s): %d %s events for %s in the next %d hours."
           % (src, fx_week(now), len(sel), "/".join(imp), ",".join(sorted(cur)), a.hours))
@@ -805,7 +872,7 @@ def cmd_scan(a, store, cfg):
         hits, failed = [], []
         for p in pairs:
             try:
-                b = bars_from(data.chart(p + "=X", "1y", "1d"), 86400, now)
+                b = bars_from(data.chart(yahoo(p), "1y", "1d"), 86400, now)
                 r = daily_setups(p, b)
             except FxError as e:
                 failed.append(p)
@@ -845,7 +912,7 @@ def cmd_scan(a, store, cfg):
     rows, failed = [], []
     for p in pairs:
         try:
-            b = bars_from(data.chart(p + "=X", "5d", "5m"), STEP, now)
+            b = bars_from(data.chart(yahoo(p), "5d", "5m"), STEP, now)
             rows.append(session_breakout(p, b, rtype, day, now))
         except FxError:
             failed.append(p)
@@ -889,10 +956,10 @@ def cmd_plan(a, store, cfg):
     data = Data(a.offline)
     atr_val = None
     if not entry or a.stop.startswith("atr"):
-        b = bars_from(data.chart(pair + "=X", "6mo", "1d"), 86400)
+        b = bars_from(data.chart(yahoo(pair), "6mo", "1d"), 86400)
         atr_val = atr(b)
         if not entry:
-            entry = last_price(data, pair + "=X")
+            entry = last_price(data, yahoo(pair))
     stop_rule = a.stop or ("range-mid" if rng else "atr:1")
     plan = make_plan(pair, side, float(entry), stop_rule, a.target, cfg, rng, atr_val)
     if rtype and hit:
@@ -917,7 +984,7 @@ def cmd_replay(a, store, cfg):
     data = Data(a.offline)
     now = parse_now(a.now, ZoneInfo(cfg["display_tz"]))
     pair = plan["pair"]
-    bars = bars_from(data.chart(pair + "=X", "60d", "5m"), STEP, now)
+    bars = bars_from(data.chart(yahoo(pair), "60d", "5m"), STEP, now)
     rtype = plan.get("range")
     if plan.get("entry_time"):
         start = dt.datetime.fromisoformat(plan["entry_time"])
@@ -961,7 +1028,9 @@ def cmd_size(a, store, cfg):
     o = size_order(plan, cfg, rate, a.balance, a.risk_pct, a.risk_amount)
     acct = o["account_currency"]
     pair = o["pair"]
-    print("Size: %.2f lots %s %s (%s units), decided by your %s." % (o["lots"], o["side"], pair, format(o["units"], ","), o["decided_by"]))
+    unit = INSTRUMENTS[pair]["unit"] if is_cfd(pair) else "units"
+    print("Size: %.2f lots %s %s (%s %s; one lot = %s %s), decided by your %s." % (
+        o["lots"], o["side"], label(pair), format(o["units"], ","), unit, format(int(o["contract"]), ","), unit, o["decided_by"]))
     print("  entry %s, stop %s, target %s; pip value %.2f %s a lot." % (
         fmt(pair, o["entry"]), fmt(pair, o["stop"]), fmt(pair, o["target"]), o["pip_value_per_lot"], acct))
     print("  loss at the stop %.2f %s (spread included, budget %.2f), gain at the target %.2f %s." % (
@@ -998,7 +1067,7 @@ def risk_check(o, cfg, journal, events, now, skip_news=False):
     ck(len(today) < int(cfg["max_trades_per_day"]), "trades today %d < %d" % (len(today), int(cfg["max_trades_per_day"])))
     ck(o["effective_leverage"] <= float(cfg["max_leverage"]) * 1.0001, "leverage %.1fx <= %sx" % (o["effective_leverage"], cfg["max_leverage"]))
     ck(o["lots"] >= float(cfg["min_lot"]), "at least the minimum lot")
-    ck(market_open(now), "the forex market is open")
+    ck(market_open(now, pair), "the market is open for %s" % pair)
     n = now.astimezone(NY)
     fri = n.weekday() == 4 and n.time() >= hm(cfg["no_entries_friday_after_ny"])
     ck(not fri, "not Friday after %s New York (weekend gap)" % cfg["no_entries_friday_after_ny"])
@@ -1014,7 +1083,7 @@ def risk_check(o, cfg, journal, events, now, skip_news=False):
             e = near[0]
             ck(False, "%s news within %d min: %s %s at %s UTC" % (e["impact"], int(cfg["news_buffer_minutes"]), e["currency"], e["title"], e["time"][11:16]))
         else:
-            ck(True, "no %s news for %s/%s within %d min" % ("/".join(cfg["news_impact"]), pair[:3], pair[3:], int(cfg["news_buffer_minutes"])))
+            ck(True, "no %s news for %s within %d min" % ("/".join(cfg["news_impact"]) + (" or crude/OPEC" if is_cfd(pair) and INSTRUMENTS[pair].get("oil") else ""), "/".join(sorted(news_ccys(pair))), int(cfg["news_buffer_minutes"])))
     return checks, all(ok for ok, _ in checks)
 
 
@@ -1045,9 +1114,11 @@ def cmd_risk(a, store, cfg):
 def ticket(o, cfg):
     p = o["pair"]
     return "\n".join([
-        "  %s %.2f lots %s/%s at market (about %s)" % ("BUY" if o["side"] == "long" else "SELL", o["lots"], p[:3], p[3:], fmt(p, o["entry"])),
-        "  stop-loss   %s  (%.1f pips, about -%.2f %s)" % (fmt(p, o["stop"]), o["stop_pips"], o["loss_at_stop"], o["account_currency"]),
-        "  take-profit %s  (%.1f pips)" % (fmt(p, o["target"]), o["target_pips"]),
+        "  %s %.2f lots %s at market (about %s)" % ("BUY" if o["side"] == "long" else "SELL", o["lots"], label(p), fmt(p, o["entry"])),
+        "  stop-loss   %s  (%.1f pips = %s away, about -%.2f %s)" % (fmt(p, o["stop"]), o["stop_pips"], fmt(p, abs(o["entry"] - o["stop"])), o["loss_at_stop"], o["account_currency"]),
+        "  take-profit %s  (%.1f pips = %s away)" % (fmt(p, o["target"]), o["target_pips"], fmt(p, abs(o["target"] - o["entry"]))),
+        ("  prices here are from the %s future; your broker's %s price differs a little, so set the stop and target by the distances above from your own entry"
+         % (INSTRUMENTS[p]["yahoo"], p)) if is_cfd(p) else "  (check the price and spread on your broker before you enter)",
         "  close it by %s %s if neither hits" % (show_t(cfg, dt.datetime.fromisoformat(o["flat_by"])), tzlabel(cfg)) if o.get("flat_by") else "  close it before the session ends if neither hits",
     ])
 
