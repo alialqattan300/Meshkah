@@ -776,6 +776,8 @@ function bookCard(b) {
     el('button', { class: 'btn primary small', onclick: () => openBook(b.id) }, b.lastRead ? 'كمّل القراءة' : 'افتح'),
     b.format === 'pdf' && b.assetId && canAdd() && !b.pendingUpload && !(CONV.get(b.id) || {}).running && !S.books.has(b.id + TSH_SUFFIX) &&
       el('button', { class: 'btn small', onclick: () => convertBook(b.id) }, 'حوّله لنص مشكّل'),
+    b.format === 'epub' && (b.assetId || !b.missing) &&
+      el('button', { class: 'btn small', onclick: e => downloadEpub(b, e.currentTarget) }, 'نزّل EPUB'),
     CONV.has(b.id) && CONV.get(b.id).running && el('button', { class: 'btn small', onclick: () => { CONV.get(b.id).stop = true; } }, 'وقّف التحويل'),
     b.id !== SAMPLE_ID && canAdd() && !b.pendingUpload && el('button', { class: 'btn ghost small', onclick: () => askDelete(actions, b) }, 'احذف'));
   return el('li', {}, el('article', { class: 'book' },
@@ -959,6 +961,56 @@ async function parsePacked(blob) {
   });
   if (!chapters.length) throw new Error('empty book');
   return { chapters };
+}
+/* ================= download as a real .epub file ================= */
+const escXml = s => escHtml(s).replace(/'/g, '&apos;');
+function saveFile(blob, name) {
+  const a = el('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function buildEpub(title, chapters) {
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+  zip.file('META-INF/container.xml', '<?xml version="1.0" encoding="UTF-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+  const T = escXml(title), xs = new XMLSerializer(), manifest = [], spine = [], nav = [], ncx = [];
+  const page = (t, body) => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ar" xml:lang="ar" dir="rtl"><head><meta charset="UTF-8"/><title>${t}</title><link rel="stylesheet" href="style.css"/></head><body dir="rtl">${body}</body></html>`;
+  let imgN = 0;
+  chapters.forEach((c, i) => {
+    const n = i + 1, file = `c${n}.xhtml`, ct = escXml(c.title || `فصل ${num(n)}`);
+    for (const img of c.node.querySelectorAll('img')) {
+      const m = /^data:image\/(png|jpe?g|gif|webp);base64,(.*)$/i.exec(img.getAttribute('src') || '');
+      if (!m) { img.remove(); continue; }
+      const ext = m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase(), name = `img${++imgN}.${ext === 'jpeg' ? 'jpg' : ext}`;
+      zip.file('OEBPS/' + name, m[2], { base64: true });
+      manifest.push(`<item id="i${imgN}" href="${name}" media-type="image/${ext}"/>`);
+      img.setAttribute('src', name); if (!img.hasAttribute('alt')) img.setAttribute('alt', '');
+    }
+    const body = [...c.node.childNodes].map(x => xs.serializeToString(x)).join('').replace(/ xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '');
+    zip.file('OEBPS/' + file, page(ct, body));
+    manifest.push(`<item id="c${n}" href="${file}" media-type="application/xhtml+xml"/>`);
+    spine.push(`<itemref idref="c${n}"/>`);
+    nav.push(`<li><a href="${file}">${ct}</a></li>`);
+    ncx.push(`<navPoint id="n${n}" playOrder="${n}"><navLabel><text>${ct}</text></navLabel><content src="${file}"/></navPoint>`);
+  });
+  zip.file('OEBPS/style.css', 'body{text-align:right;line-height:1.9;margin:0 5%}p{margin:0 0 .8em}img{max-width:100%;height:auto}h1,h2,h3{line-height:1.4}');
+  zip.file('OEBPS/nav.xhtml', page(T, `<nav epub:type="toc" id="toc"><h1>${T}</h1><ol>${nav.join('')}</ol></nav>`));
+  const id = 'urn:meshkah:' + uid();
+  zip.file('OEBPS/toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${id}"/></head><docTitle><text>${T}</text></docTitle><navMap>${ncx.join('')}</navMap></ncx>`);
+  zip.file('OEBPS/content.opf', `<?xml version="1.0" encoding="UTF-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bid" xml:lang="ar" dir="rtl"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bid">${id}</dc:identifier><dc:title>${T}</dc:title><dc:language>ar</dc:language><meta property="dcterms:modified">${new Date().toISOString().slice(0, 19)}Z</meta></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="css" href="style.css" media-type="text/css"/>${manifest.join('')}</manifest><spine toc="ncx" page-progression-direction="rtl">${spine.join('')}</spine></package>`);
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip' });
+}
+async function downloadEpub(b, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'يجهّز الملف…'; }
+  try {
+    const f = await loadBookFile(b);
+    if (!f) { toast('الملف مو موجود. أضف الكتاب مرة ثانية.'); return; }
+    const name = (b.title || 'كتاب').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 100) + '.epub';
+    const blob = await isZip(f) ? new Blob([f], { type: 'application/epub+zip' }) : await buildEpub(b.title || 'كتاب', (await parsePacked(f)).chapters);
+    saveFile(blob, name);
+    toast('نزل الملف. تقدر تفتحه في أي برنامج قراءة EPUB.');
+  } catch (e) { console.warn(e); toast('ما قدرت أجهّز ملف EPUB. ' + errText(e)); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'نزّل EPUB'; } }
 }
 async function isZip(blob) { const h = new Uint8Array(await blob.slice(0, 2).arrayBuffer()); return h[0] === 0x50 && h[1] === 0x4b; }
 
