@@ -463,6 +463,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
     <button class="sw c3" data-c="3" aria-label="ظلّل أزرق"></button>
     <button class="sw c4" data-c="4" aria-label="ظلّل وردي"></button>
     <span class="sep"></span>
+    <button data-act="copy">انسخ</button>
     <button data-act="sum">لخّص</button>
     <button data-act="tsh">شكّل</button>
     <button data-act="quiz">اختبرني</button>
@@ -517,8 +518,15 @@ function toast(msg, ms = 3800) {
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms);
 }
 async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); toast('انتسخ النص'); }
-  catch { toast('ما قدرت أنسخ. حدد النص وانسخه يدوياً.'); }
+  if (!text) return;
+  try { await navigator.clipboard.writeText(text); toast('انتسخ النص'); return; } catch { /* try the older way */ }
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false; try { ok = document.execCommand('copy'); } catch { /* not supported */ }
+  ta.remove();
+  toast(ok ? 'انتسخ النص' : 'ما قدرت أنسخ. حدد النص وانسخه يدوياً.');
 }
 
 /* ================= Arabic normalisation & search core ================= */
@@ -1499,7 +1507,8 @@ document.addEventListener('selectionchange', debounce(() => {
   if (!text) return;
   clearTimeout(selHideT);
   S.selRange = range.cloneRange();
-  S.lastSel = { text, u: S.cur.R.unitOf(range.startContainer) };
+  const raw = sel.toString().split('\n').map(l => l.replace(/[ \t\u00a0]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  S.lastSel = { text, raw, u: S.cur.R.unitOf(range.startContainer) };
   const rect = range.getBoundingClientRect();
   const bar = $('#selbar'); bar.hidden = false;
   const bw = bar.offsetWidth, bh = bar.offsetHeight;
@@ -1524,7 +1533,9 @@ $('#selbar').addEventListener('click', e => {
     toast('انظلّل. تقدر تضيف ملاحظة من «ملاحظاتي».');
     return;
   }
-  const act = btn.dataset.act; hideSelbar();
+  const act = btn.dataset.act;
+  if (act === 'copy') { copyText(S.lastSel.raw || S.lastSel.text); getSelection().removeAllRanges(); hideSelbar(); return; }
+  hideSelbar();
   if (act === 'search') { openDrawer('search'); $('#q').value = S.lastSel.text.slice(0, 80); runSearch(); }
   if (act === 'sum') { openDrawer('summary'); setChip('#sumScope', 'selection'); runSummary(); }
   if (act === 'tsh') { openDrawer('tashkeel'); setChip('#tshScope', 'selection'); onScopeChange('tsh'); runTashkeel(); }
