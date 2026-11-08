@@ -1106,7 +1106,7 @@ def cmd_risk(a, store, cfg):
     store.write("risk.json", {"fingerprint": o["fingerprint"], "verdict": "PASS" if ok else "BLOCK",
                               "reasons": bad, "checked_at": now.isoformat(), "fx_day": fx_day(now).isoformat()})
     if ok:
-        print("Ticket for your DEMO account (type it in yourself; this skill never sends orders):")
+        print("Ticket for your DEMO account (fingerprint %s). Type it in yourself, or send it with the MT5 bridge after an explicit yes:" % o["fingerprint"])
         print(ticket(o, cfg))
     return 0 if ok else 1
 

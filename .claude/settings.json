@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "ask": [
+      "mcp__exness-mt5__mt5_place_order",
+      "mcp__exness-mt5__mt5_close_position"
+    ]
+  }
+}

@@ -1,14 +1,15 @@
 ---
 name: forex-trader
-description: Forex, gold, silver and oil day-trading toolkit, demo account only. Tells you if the market is open and which sessions (Sydney, Tokyo, London, New York) are on, in Kuwait time. Lists high-impact news (CPI, NFP, rate decisions, crude inventories, OPEC) from the free ForexFactory calendar. Scans 15 major and cross pairs plus gold (XAUUSD), silver (XAGUSD), WTI (USOIL) and Brent (UKOIL) on daily candles (20-day breakout or breakdown, crossing the 20-day average, RSI oversold or overbought, trend) and for session-range breakouts (the London breakout of the Asian range, the London open, the New York open), long or short. Then it plans the stop and target in pips, replays the trade 10,000 times from the pair's last 60 days plus every past day the same rule fired, sizes the position in lots from your balance and risk percent, and checks it against your limits (news, daily loss, trades a day, leverage, weekend, rollover). It ends with a ticket you type into a demo account yourself, and never places an order. Use when the user says "forex", "فوركس", "عملات", "سوق العملات", "يورو دولار", "EURUSD", "GBPUSD", "USDJPY", "الين", "الباوند", "pips", "نقاط", "لوت", "lot size", "كم لوت", "gold", "ذهب", "الذهب", "XAUUSD", "فضة", "silver", "oil", "نفط", "النفط", "برنت", "Brent", "WTI", "USOIL", "London breakout", "جلسة لندن", "جلسة نيويورك", "متى يفتح سوق الفوركس", "أخبار الفوركس", "رزنامة اقتصادية", "economic calendar", or asks to scan, plan, size or check a currency trade.
+description: Forex, gold, silver and oil day-trading toolkit, demo account only. Tells you if the market is open and which sessions (Sydney, Tokyo, London, New York) are on, in Kuwait time. Lists high-impact news (CPI, NFP, rate decisions, crude inventories, OPEC) from the free ForexFactory calendar. Scans 15 major and cross pairs plus gold (XAUUSD), silver (XAGUSD), WTI (USOIL) and Brent (UKOIL) on daily candles (20-day breakout or breakdown, crossing the 20-day average, RSI oversold or overbought, trend) and for session-range breakouts (the London breakout of the Asian range, the London open, the New York open), long or short. Then it plans the stop and target in pips, replays the trade 10,000 times from the pair's last 60 days plus every past day the same rule fired, sizes the position in lots from your balance and risk percent, and checks it against your limits (news, daily loss, trades a day, leverage, weekend, rollover). It ends with a ticket for a demo account; an optional MetaTrader 5 bridge (Exness or any MT5 broker) can send that one ticket to an MT5 DEMO account after the user's explicit yes, and refuses real accounts. Use when the user says "forex", "فوركس", "عملات", "سوق العملات", "يورو دولار", "EURUSD", "GBPUSD", "USDJPY", "الين", "الباوند", "pips", "نقاط", "لوت", "lot size", "كم لوت", "gold", "ذهب", "الذهب", "XAUUSD", "فضة", "silver", "oil", "نفط", "النفط", "برنت", "Brent", "WTI", "USOIL", "London breakout", "جلسة لندن", "جلسة نيويورك", "متى يفتح سوق الفوركس", "أخبار الفوركس", "رزنامة اقتصادية", "economic calendar", "Exness", "اكسنس", "MT5", "ميتاتريدر", "ارسل الصفقة", "send it to MT5", or asks to scan, plan, size or check a currency trade.
 ---
 
 # forex-trader
 
 A forex version of the day-trader pack in one tool: sessions, news, scanner,
 plan, time machine, sizing, risk check and journal. It reads free public
-data, does the arithmetic, and stops at a ticket for a **demo account**. It
-has no broker code at all: nothing here can place an order.
+data, does the arithmetic, and stops at a ticket for a **demo account**.
+`fx.py` has no broker code. The optional MT5 bridge in `mt5/` (below) is the
+only part that can send an order, and only to an MT5 **demo** account.
 
 Answer in the user's language. If they write in Arabic (Kuwaiti dialect),
 answer in simple Arabic, keep pair names and numbers in Latin script
@@ -140,18 +141,77 @@ Names: `gold`, `XAUUSD`, `silver`, `XAGUSD`, `oil` / `WTI` / `USOIL`,
 - Give the Time Machine's numbers and verdict as they are, including when it
   says the stop comes first. It is a simulation, not a prediction.
 - Show the ticket from `risk` as is, in the user's language, and remind them
-  to type it into their **demo** account themselves.
+  to type it into their **demo** account themselves, or offer the MT5 bridge
+  if its tools are connected.
+
+## Sending to an Exness demo account (MetaTrader 5)
+
+`mt5/server.py` is a small MCP server that talks to the MT5 terminal on the
+user's own Windows PC through the official `MetaTrader5` Python package.
+Exness has no public trading API; MT5 is the way in. Works with any MT5
+broker. It cannot run in a cloud session: it needs MT5 open on the same PC.
+
+Tools (server name `exness-mt5`): `mt5_status`, `mt5_quote`,
+`mt5_positions`, `mt5_preview_order` (read only); `mt5_place_order` and
+`mt5_close_position` (need approval every time, set in
+`.claude/settings.json`).
+
+The flow, every time:
+
+1. `plan`, `size --write`, `risk`: PASS. The risk check must be under 15
+   minutes old when the order is sent; run it again if not.
+2. `mt5_status`: it must say `"account": "DEMO"`. On a real or contest
+   account the bridge disconnects and sends nothing.
+3. `mt5_preview_order` with the fingerprint from forex/order.json. Show the
+   user, in plain words: buy or sell, lots, symbol, the live price, stop
+   and target, the loss at the stop in their currency (from Exness's own
+   contract spec), and that it is the demo account.
+4. Ask: "Send this exact order to your demo account? (yes / no)". Only an
+   explicit yes for this one order counts. Anything else: do not send.
+5. `mt5_place_order` with the fingerprint. Claude Code then asks once more
+   (the approval card). Report the result as it comes back, including any
+   "NOT SENT" reason.
+
+What the bridge enforces on its own: demo accounts only (checked again right
+before sending); a fresh risk PASS for that exact fingerprint; each order
+sent once; the account currency matches; the live spread is within 2x the
+planned spread; stop and target are set by distance from the live price;
+lots round down to the symbol's step; the loss at the stop, from the
+broker's tick value, stays within the risk budget (else it names the
+`contract_size` to set); `order_check` before `order_send`. Sent orders go
+into forex/sent.json and the journal, so daily limits count them. Closing a
+position is never blocked by a limit, but still needs the user's yes.
+
+Setup on the user's Windows PC (tell them, step by step, when they ask):
+
+1. Exness Personal Area: open a **demo** MT5 account. Install MetaTrader 5
+   from Exness and log in to the demo account.
+2. In MT5: Tools > Options > Expert Advisors: tick "Allow algorithmic
+   trading", and turn on the "Algo Trading" button in the toolbar.
+3. Install Python 3.11 to 3.14 from python.org (tick "Add to PATH"), then in
+   a terminal: `pip install MetaTrader5 "mcp>=2.3,<3"`.
+4. Install Claude Code (or the Claude desktop app's Code tab), and clone
+   this repository on the PC.
+5. In the repository folder:
+   `claude mcp add exness-mt5 -- python .claude/skills/forex-trader/mt5/server.py`
+6. Start Claude Code in that folder and ask for the MT5 status. It must say
+   DEMO. Never set the order tools to "always allow", and do not run in a
+   mode that skips permission prompts.
+
+Logins and passwords stay in MT5. Never ask for them in the chat and never
+put them in a file.
 
 ## Safety
 
 - Education and tooling, not financial advice. Most retail forex accounts
   lose money; leverage makes losses fast. A PASS is a rules check, not a
   recommendation.
-- Demo only: `"demo": true` is the default. This skill never connects to a
-  broker, never asks for or stores broker logins or API keys, and never
-  places, changes or closes an order. If the user asks to connect a live
-  account or trade real money, say this skill does not do that, and that
-  the decision and the account are theirs.
+- Demo only: `"demo": true` is the default. `fx.py` never connects to a
+  broker. The MT5 bridge only works on demo accounts and only sends an
+  order the risk check passed and the user said yes to. Never ask for or
+  store broker logins, passwords or API keys. If the user asks to trade a
+  live account or real money, say this skill does not do that and do not
+  change the bridge to allow it; that decision and that account are theirs.
 - Never raise the user's risk limits on your own. Change `forex/config.json`
   only when the user asks, and say what changed.
 - A stop is a plan, not a guarantee: news and the weekend can gap past it.
