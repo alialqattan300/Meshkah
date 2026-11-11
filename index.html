@@ -161,6 +161,14 @@ button { cursor: pointer; }
 .textLayer br::selection { background: transparent; }
 
 .flow { max-width: 40em; margin: 0 auto; padding-left: var(--gut-l); padding-right: var(--gut-r); padding-block: 28px 60vh; font-family: var(--f-read); font-size: calc(19px * var(--fs)); line-height: 2.05; overflow-wrap: anywhere; }
+.bayt { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 1.5em; margin: 0 0 .35em; }
+.bayt .sadr, .bayt .ajz { flex: 1 1 14em; }
+.bayt .ajz { text-align: left; }
+@media (max-width: 560px) { .bayt .ajz { padding-inline-start: 1.5em; } }
+.chap .ttl { text-align: center; font-size: 1.1em; margin: 1.2em 0 .6em; }
+.chap .pgno { font-size: .8em; color: var(--muted); font-family: var(--f-ui); font-weight: 400; text-align: center; }
+.chap p.fn { font-size: .82em; color: var(--muted); line-height: 1.8; margin: 0 0 .3em; }
+.chap hr { border: 0; border-top: 1px solid var(--line); width: 30%; margin: 1em 0 .6em auto; }
 .chap { padding-bottom: 2.5em; margin-bottom: 2.5em; border-bottom: 1px solid var(--line); }
 .chap :is(h1, h2, h3) { font-family: var(--f-display); font-weight: 600; line-height: 1.5; text-wrap: balance; color: var(--accent); }
 .chap h1 { font-size: 1.6em; } .chap h2 { font-size: 1.4em; } .chap h3 { font-size: 1.2em; }
@@ -352,6 +360,7 @@ details.item summary { cursor: pointer; font-weight: 500; }
         <span class="rpos" id="rPos"></span>
       </div>
       <div class="rtools">
+        <button class="btn" id="altView" hidden></button>
         <button class="btn" id="bmQuick" title="علامة عند مكانك الحالي">
           <svg class="icon" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg>
           علامة
@@ -812,7 +821,7 @@ function renderLibrary() {
   $('#convAllBtn').hidden = !canAdd() || (!convAll.running && !left.length);
   $('#convAllBtn').textContent = convAll.running ? 'وقّف تحويل الكل' : `حوّل كل الكتب لنص مشكّل (${num(left.length)})`;
   const q = $('#libQ').value.trim();
-  const all = [...S.books.values()].sort((a, b) => (b.lastRead || b.addedAt || 0) - (a.lastRead || a.addedAt || 0));
+  const all = [...S.books.values()].filter(b => !baseOf(b)).sort((a, b) => (b.lastRead || b.addedAt || 0) - (a.lastRead || a.addedAt || 0));
   renderCats(all);
   const inCat = b => catSel === 'all' || (catSel === 'none' ? !catOf(b) : catOf(b) === catSel);
   const books = all.filter(b => inCat(b) && titleMatch(b.title || '', q));
@@ -823,25 +832,33 @@ function renderLibrary() {
   else if (!books.length) shelf.append(el('li', { class: 'shelf-empty', text: q ? `ما لقيت كتاب اسمه «${q}»${catSel === 'all' ? '' : ' في هالقسم'}.` : catSel === 'شعر' ? 'ما فيه كتب شعر للحين. تقدر تستخدم ميزان الشعر فوق.' : 'ما فيه كتب في هالقسم للحين.' }));
 }
 $('#libQ').addEventListener('input', debounce(renderLibrary, 120));
+// A converted PDF and its text version ("<id>-tsh") show as one book with two views.
+const twinOf = b => (b && !b.id.endsWith(TSH_SUFFIX) && S.books.get(b.id + TSH_SUFFIX)) || null;
+const baseOf = b => (b && b.id.endsWith(TSH_SUFFIX) && S.books.get(b.id.slice(0, -TSH_SUFFIX.length))) || null;
 function bookCard(b) {
   const pct = Math.round((b.progress || 0) * 100);
+  const tw = twinOf(b), busy = (CONV.get(b.id) || {}).running;
   const actions = el('div', { class: 'book-actions' },
-    el('button', { class: 'btn primary small', onclick: () => openBook(b.id) }, b.lastRead ? 'كمّل القراءة' : 'افتح'),
-    b.format === 'pdf' && b.assetId && canAdd() && !b.pendingUpload && !(CONV.get(b.id) || {}).running && !S.books.has(b.id + TSH_SUFFIX) &&
+    el('button', { class: 'btn primary small', onclick: () => openBook(b.id) }, tw ? (b.lastRead ? 'كمّل (شكل الكتاب)' : 'افتح شكل الكتاب') : b.lastRead ? 'كمّل القراءة' : 'افتح'),
+    tw && el('button', { class: 'btn small', onclick: () => openBook(tw.id) }, tw.lastRead ? 'كمّل (نص)' : 'اقرأه كنص'),
+    b.format === 'pdf' && b.assetId && canAdd() && !b.pendingUpload && !busy && !tw &&
       el('button', { class: 'btn small', onclick: () => convertBook(b.id) }, 'حوّله لنص مشكّل'),
-    b.format === 'epub' && (b.assetId || !b.missing) &&
-      el('button', { class: 'btn small', onclick: e => downloadEpub(b, e.currentTarget) }, 'نزّل EPUB'),
+    (b.format === 'epub' || tw) && (b.assetId || !b.missing) &&
+      el('button', { class: 'btn small', onclick: e => downloadEpub(tw || b, e.currentTarget) }, 'نزّل EPUB'),
+    tw && canAdd() && !busy &&
+      el('button', { class: 'btn ghost small', title: 'يقرا الكتاب من جديد بالترتيب الجديد (الأبيات صدر وعجز، والعناوين والحواشي)', onclick: () => convertBook(b.id) }, 'أعد التحويل'),
     CONV.has(b.id) && CONV.get(b.id).running && el('button', { class: 'btn small', onclick: () => { CONV.get(b.id).stop = true; } }, 'وقّف التحويل'),
     b.id !== SAMPLE_ID && canAdd() && !b.localOnly &&
       el('select', { class: 'cat-sel', 'aria-label': 'قسم الكتاب', onchange: e => setCat(b, e.target.value) },
         el('option', { value: '' }, 'بدون قسم'), CATS.map(c => el('option', { value: c, selected: catOf(b) === c }, c))),
     b.id !== SAMPLE_ID && canAdd() && !b.pendingUpload && el('button', { class: 'btn ghost small', onclick: () => askDelete(actions, b) }, 'احذف'));
   return el('li', {}, el('article', { class: 'book' },
-    el('div', { class: 'spine', 'data-fmt': b.format }, fmtLabel(b.format)),
+    el('div', { class: 'spine', 'data-fmt': b.format }, tw ? 'PDF+نص' : fmtLabel(b.format)),
     el('div', { class: 'book-main' },
       el('h3', { text: b.title }),
       catOf(b) && el('span', { class: 'cat-tag', text: catOf(b) }),
       el('p', { class: 'meta', text: `${num(b.highlights.length)} تظليل · ${num(b.bookmarks.length)} علامة · ${num(b.summaries.length)} ملخص` }),
+      tw && el('p', { class: 'meta', text: 'له نسخة نصية: تقراه كنص، أو تحدد وتنسخ وتلوّن وأنت على شكل الكتاب.' }),
       el('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pct, 'aria-valuemin': 0, 'aria-valuemax': 100 }, el('span', { style: `width:${pct}%` })),
       el('p', { class: 'meta', text: b.lastRead ? `وصلت ${num(pct)}٪ · آخر قراءة ${relDate(b.lastRead)}` : 'ما بديت فيه' }),
       b.missing && el('p', { class: 'missing', text: 'الملف مو على هالجهاز. أضفه مرة ثانية وبترجع ملاحظاتك.' }),
@@ -858,6 +875,7 @@ function askDelete(box, b) {
 }
 async function deleteBook(id) {
   const b = S.books.get(id);
+  const tw = twinOf(b); if (tw) await deleteBook(tw.id);
   if (Meta.canAdd && b && b.assetId) {
     const { error } = await sb.from('midad_books').delete().eq('id', id);
     if (error) { toast('ما قدرت أحذفه من المكتبة. جرّب مرة ثانية.'); return; }
@@ -939,6 +957,7 @@ async function epubTitle(file) {
 const DROP = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'IFRAME', 'OBJECT', 'EMBED', 'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'NOSCRIPT', 'TITLE', 'HEAD', 'VIDEO', 'AUDIO', 'CANVAS', 'MATH']);
 const ALLOWED = new Set('P DIV SPAN H1 H2 H3 H4 H5 H6 UL OL LI BLOCKQUOTE EM STRONG B I U SUB SUP BR HR TABLE THEAD TBODY TR TD TH IMG FIGURE FIGCAPTION PRE CODE SMALL SECTION ARTICLE ASIDE DL DT DD'.split(' '));
 const BLOCKS = new Set('P DIV H1 H2 H3 H4 H5 H6 LI BLOCKQUOTE TR TD TH PRE FIGCAPTION SECTION ARTICLE DT DD'.split(' '));
+const KEEP_CLASS = /^(bayt|sadr|ajz|fn|ttl|pgno)$/; // our own verse/footnote markup in converted books
 function sanitize(root, imgs) {
   const frag = document.createDocumentFragment();
   (function walk(node, parent) {
@@ -955,6 +974,7 @@ function sanitize(root, imgs) {
       }
       const e = document.createElement(ALLOWED.has(tag) ? tag.toLowerCase() : 'span');
       for (const a of ['dir', 'lang', 'alt', 'colspan', 'rowspan']) { const v = ch.getAttribute(a); if (v != null) e.setAttribute(a, v); }
+      const cls = ch.getAttribute('class'); if (cls && KEEP_CLASS.test(cls)) e.className = cls;
       if (tag === 'IMG') { const src = ch.getAttribute('src'); if (src) imgs.push([e, src]); }
       parent.append(e);
       walk(ch, e);
@@ -1050,7 +1070,7 @@ async function buildEpub(title, chapters) {
     nav.push(`<li><a href="${file}">${ct}</a></li>`);
     ncx.push(`<navPoint id="n${n}" playOrder="${n}"><navLabel><text>${ct}</text></navLabel><content src="${file}"/></navPoint>`);
   });
-  zip.file('OEBPS/style.css', 'body{text-align:right;line-height:1.9;margin:0 5%}p{margin:0 0 .8em}img{max-width:100%;height:auto}h1,h2,h3{line-height:1.4}');
+  zip.file('OEBPS/style.css', 'body{text-align:right;line-height:1.9;margin:0 5%}p{margin:0 0 .8em}img{max-width:100%;height:auto}h1,h2,h3{line-height:1.4}.pgno{text-align:center;font-size:.8em;color:#888;font-weight:400}.ttl{text-align:center}.bayt{margin:0 0 .35em;overflow:hidden}.bayt .sadr{display:block;text-align:right}.bayt .ajz{display:block;text-align:left;padding-right:2em}.fn{font-size:.85em;color:#555}');
   zip.file('OEBPS/nav.xhtml', page(T, `<nav epub:type="toc" id="toc"><h1>${T}</h1><ol>${nav.join('')}</ol></nav>`));
   const id = 'urn:meshkah:' + uid();
   zip.file('OEBPS/toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${id}"/></head><docTitle><text>${T}</text></docTitle><navMap>${ncx.join('')}</navMap></ncx>`);
@@ -1369,9 +1389,30 @@ const TSH_SUFFIX = '-tsh', TSH_BATCH = 3;
 const CONV = new Map();
 $('#convAllBtn').addEventListener('click', convertAll);
 function convSet(id, patch) { CONV.set(id, Object.assign(CONV.get(id) || {}, patch)); if ($('#readView').hidden) renderLibrary(); }
+// Page text format from the conversion: "صدر ||| عجز" is a verse, "## " a title,
+// and lines after a "---" line are the page's footnotes.
+function pageLines(text) {
+  const out = []; let fn = false;
+  for (let l of String(text || '').split(/\n+/)) {
+    l = l.trim(); if (!l) continue;
+    if (/^[-ـ_]{3,}$/.test(l)) { fn = true; continue; }
+    const title = l.startsWith('## '); if (title) l = l.slice(3).trim();
+    const parts = l.split('|||').map(s => s.trim()).filter(Boolean);
+    if (parts.length) out.push({ parts, verse: parts.length > 1, title, fn });
+  }
+  return out;
+}
+const pagePlain = text => pageLines(text).map(x => x.parts.join(' … ')).join('\n');
 function pageHtml(n, text) {
-  const paras = String(text).split(/\n+/).map(t => t.trim()).filter(Boolean);
-  return `<h3>صفحة ${num(n)}</h3>` + (paras.length ? paras.map(t => `<p>${escHtml(t)}</p>`).join('') : '<p>—</p>');
+  const lines = pageLines(text);
+  let h = `<h3 class="pgno">صفحة ${num(n)}</h3>`, fn = false;
+  for (const x of lines) {
+    if (x.fn && !fn) { h += '<hr/>'; fn = true; }
+    if (x.title) h += `<h4 class="ttl">${escHtml(x.parts.join(' '))}</h4>`;
+    else if (x.verse) h += `<div class="bayt"><span class="sadr">${escHtml(x.parts[0])}</span> <span class="ajz">${escHtml(x.parts.slice(1).join(' '))}</span></div>`;
+    else h += `<p${x.fn ? ' class="fn"' : ''}>${escHtml(x.parts[0])}</p>`;
+  }
+  return lines.length ? h : h + '<p>—</p>';
 }
 async function pdfPageJpeg(pdf, n) {
   const page = await pdf.getPage(n); const v = page.getViewport({ scale: 1 });
@@ -1440,7 +1481,11 @@ async function convertBook(id) {
 القواعد:
 - لا تغيّر ولا تحذف ولا تضيف أي كلمة. فقط أضف التشكيل.
 - إذا كان النص المستخرج فيه حروف مقطعة أو كلمات بترتيب معكوس بسبب ملف PDF، رتّبه كما هو في الكتاب الأصلي.
-- حافظ على الفقرات (سطر لكل فقرة). اترك أرقام الحواشي كما هي، وتجاهل رأس الصفحة وتذييلها المتكرر.
+- حافظ على الفقرات (سطر لكل فقرة). اترك أرقام الحواشي كما هي، وتجاهل رأس الصفحة وتذييلها المتكرر (اسم الكتاب واسم الفصل ورقم الصفحة).
+- الشعر: اكتب كل بيت في سطر واحد، الصدر ثم ||| ثم العجز، حتى لو كانت الكلمة مقسومة بين الشطرين في الكتاب. الشطر الوحيد يكون سطر لحاله.
+- العناوين (اسم قصيدة أو باب أو فصل) اكتبها في سطر يبدأ بـ ## ثم مسافة.
+- الحواشي أسفل الصفحة: اكتب سطر --- ثم كل حاشية في سطر.
+- اكتب الأسطر بنفس ترتيبها في الصفحة من فوق لتحت.
 - الكلام غير العربي يبقى كما هو.
 - ابدأ كل صفحة بسطر مستقل بالشكل [[صفحة رقمها]] بالأرقام الإنجليزية، ثم نصها المشكّل.
 - أرجع الصفحات فقط، بدون أي مقدمة أو شرح أو Markdown.
@@ -1463,14 +1508,16 @@ ${imgs ? '' : batch.map((n, i) => `[[صفحة ${n}]]\n${texts[i]}`).join('\n\n')
     convSet(id, { msg: 'يرفع النسخة المشكّلة للمكتبة…' });
     const chapters = []; for (let n = 1; n <= N; n++) chapters.push({ title: `صفحة ${num(n)}`, html: pageHtml(n, st.pages[n]) });
     const nid = id + TSH_SUFFIX, title = `${b.title} (مشكّل)`, path = `${nid}.json`;
-    const blob = new Blob([JSON.stringify({ v: 1, title, chapters })], { type: 'application/json' });
+    // v2 keeps the raw page texts too: the PDF reader lays them over scanned pages.
+    const blob = new Blob([JSON.stringify({ v: 2, title, src: id, pages: st.pages, chapters })], { type: 'application/json' });
     const up = await sb.storage.from(BUCKET).upload(path, blob, { contentType: 'application/json', upsert: true });
     if (up.error) throw up.error;
     const { error } = await sb.from('midad_books').upsert({ id: nid, title, format: 'epub', storage_path: path, packed: 'json', size: blob.size });
     if (error) throw error;
-    await IDB.del('text', key);
+    try { await IDB.put('files', nid, blob); } catch { memFiles.set(nid, blob); }
+    await Promise.all([IDB.del('text', key), IDB.del('text', id), IDB.del('text', id + ':ov')]);
     CONV.delete(id); await loadLibrary();
-    toast(`انضاف «${title}» للمكتبة. تقدر تحدد وتنسخ أي نص فيه.`, 6000);
+    toast(`خلص تحويل «${b.title}». تقدر تقراه كنص، وتحدد وتنسخ وتلوّن حتى وأنت على شكل الكتاب.`, 7000);
   } catch (e) {
     console.warn(e);
     convSet(id, { running: false, err: true, msg: `${errText(e)} (خلص ${num(done())} من ${num(N)} صفحة، يكمل من مكانه لو ضغطت «حوّله»)` });
@@ -1527,7 +1574,7 @@ function ChapterReader(book, scroller, b) {
   const R = {
     kind: 'chap', units: secs.length, unitWord: 'فصل',
     label: u => titles[u] ? `${titles[u]}` : `الفصل ${num(u + 1)}`,
-    short: u => `الفصل ${num(u + 1)}`,
+    short: u => /^صفحة /.test(titles[u] || '') ? titles[u] : `الفصل ${num(u + 1)}`,
     getText: async u => texts[u] || '',
     current: () => locate(scroller, secs),
     scrollTo(u, f = 0) { const s = secs[u]; if (s) scroller.scrollTop = Math.max(0, s.offsetTop + f * s.offsetHeight - 20); },
@@ -1575,6 +1622,7 @@ async function PdfReader(file, scroller, b) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false, useSystemFonts: true }).promise;
   const n = pdf.numPages;
+  const ptx = await loadPageTexts(b, n), bandCache = new Map();
   const v1 = (await pdf.getPage(1)).getViewport({ scale: 1 });
   const ratio = v1.height / v1.width;
   const wrap = el('div', { class: 'pdf' }); scroller.append(wrap);
@@ -1618,7 +1666,12 @@ async function PdfReader(file, scroller, b) {
       const tl = d.querySelector('.textLayer'); tl.textContent = '';
       const tc = await page.getTextContent();
       if (my !== gen) return;
-      await pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] }).promise;
+      const own = tc.items.reduce((a, it) => a + (it.str || '').replace(/\s/g, '').length, 0);
+      if (own < 20 && ptx && ptx[i]) {
+        // scanned page: lay the converted text over the image so it can be selected, copied and highlighted
+        if (!bandCache.has(i)) bandCache.set(i, inkBands(c));
+        overlayText(tl, bandCache.get(i), ptx[i], vp.width, vp.height);
+      } else await pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] }).promise;
       R.drawHighlights(i);
       if (rendered.size > 16) for (const k of [...rendered.keys()]) if (Math.abs(k - i) > 8) clear(k);
     } catch (e) { rendered.delete(i); console.warn(e); }
@@ -1634,7 +1687,11 @@ async function PdfReader(file, scroller, b) {
   const R = {
     kind: 'pdf', units: n, unitWord: 'صفحة', index: null, pdf,
     label: u => `صفحة ${num(u + 1)}`, short: u => `صفحة ${num(u + 1)}`,
-    async extract(u) { const p = await pdf.getPage(u + 1); return textOf((await p.getTextContent()).items); },
+    async extract(u) {
+      const p = await pdf.getPage(u + 1); const t = textOf((await p.getTextContent()).items);
+      return ptx && ptx[u] && t.replace(/\s/g, '').length < 20 ? pagePlain(ptx[u]) : t;
+    },
+    hasOverlay: !!ptx,
     async getText(u) { if (this.index && this.index[u] != null) return this.index[u]; const t = await this.extract(u); if (this.index) this.index[u] = t; return t; },
     current: () => locate(scroller, pages),
     scrollTo(u, f = 0) { const p = pages[u]; if (p) scroller.scrollTop = Math.max(0, p.offsetTop + f * p.offsetHeight - 20); },
@@ -1689,6 +1746,128 @@ async function PdfReader(file, scroller, b) {
   return R;
 }
 
+/* Scanned PDFs: the converted text is laid over each page image, line by line */
+async function loadPageTexts(b, n) {
+  const t = twinOf(b); if (!t) return null;
+  try {
+    const d = JSON.parse(await (await loadBookFile(t)).text());
+    const out = new Array(n).fill('');
+    if (d.pages && typeof d.pages === 'object') { for (const [k, v] of Object.entries(d.pages)) if (+k >= 1 && +k <= n) out[k - 1] = String(v || ''); }
+    else (d.chapters || []).forEach((c, i) => {
+      if (i >= n) return;
+      const doc = new DOMParser().parseFromString('<body>' + String(c.html || '') + '</body>', 'text/html');
+      doc.querySelectorAll('h3').forEach(h => h.remove());
+      out[i] = [...doc.body.children].map(e => e.textContent.trim()).filter(Boolean).join('\n');
+    });
+    return out.some(Boolean) ? out : null;
+  } catch (e) { console.warn('page texts', e); return null; }
+}
+// Finds the text lines on a rendered page: rows with ink, merged across diacritics,
+// and inside each line the inked runs (so a verse's two halves are told apart).
+function inkBands(c) {
+  const W = 360, H = Math.max(1, Math.round(c.height * W / c.width));
+  const s = document.createElement('canvas'); s.width = W; s.height = H;
+  const g = s.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.drawImage(c, 0, 0, W, H);
+  const px = g.getImageData(0, 0, W, H).data; s.width = s.height = 0;
+  const ink = new Uint8Array(W * H);
+  for (let i = 0, j = 0; i < ink.length; i++, j += 4) ink[i] = px[j] + px[j + 1] + px[j + 2] < 400 ? 1 : 0;
+  const rows = new Array(H).fill(0);
+  for (let y = 0; y < H; y++) { let k = 0; for (let x = 0; x < W; x++) k += ink[y * W + x]; rows[y] = k; }
+  // blocks of inked rows, then split each block at clear valleys (a row much emptier
+  // than the rows above and below it), so lines joined by diacritics come apart
+  const sm = rows.map((v, y) => (rows[y - 1] || 0) / 4 + v / 2 + (rows[y + 1] || 0) / 4);
+  const minH = Math.max(3, Math.round(H * 0.008));
+  const split = (a, z) => {
+    if (z - a < minH * 2 + 1) return [[a, z]];
+    let best = -1;
+    for (let y = a + minH; y < z - minH; y++) if (best < 0 || sm[y] < sm[best]) best = y;
+    let ma = 0, mb = 0;
+    for (let y = a; y < best; y++) ma = Math.max(ma, sm[y]);
+    for (let y = best + 1; y < z; y++) mb = Math.max(mb, sm[y]);
+    return sm[best] < 0.3 * Math.min(ma, mb) ? [...split(a, best), ...split(best + 1, z)] : [[a, z]];
+  };
+  let bands = [], y0 = -1;
+  for (let y = 0; y <= H; y++) {
+    const on = y < H && rows[y] >= 1;
+    if (on && y0 < 0) y0 = y; else if (!on && y0 >= 0) { bands.push(...split(y0, y)); y0 = -1; }
+  }
+  if (!bands.length) return [];
+  // trim each band to its rows with ink, then fold slivers (diacritics, rules) into the nearer line
+  bands = bands.map(([a, z]) => { while (a < z && rows[a] < 1) a++; while (z > a && rows[z - 1] < 1) z--; return [a, z]; }).filter(([a, z]) => z > a);
+  const med = arr => { const x = [...arr].sort((p, q) => p - q); return x[x.length >> 1] || 1; };
+  for (let pass = 0; pass < 3; pass++) {
+    const m = med(bands.map(([a, z]) => z - a));
+    const out = [];
+    for (let k = 0; k < bands.length; k++) {
+      const bd = bands[k];
+      if (bd[1] - bd[0] >= m * 0.45 || bands.length < 2) { out.push([...bd]); continue; }
+      const prev = out[out.length - 1], next = bands[k + 1];
+      const gp = prev ? bd[0] - prev[1] : Infinity, gn = next ? next[0] - bd[1] : Infinity;
+      if (gp <= gn && prev && gp < m) prev[1] = bd[1];
+      else if (next && gn < m) next[0] = bd[0];
+      else if (bd[1] - bd[0] >= m * 0.25) out.push([...bd]);
+    }
+    bands = out;
+  }
+  return bands.map(([a, z]) => {
+    const cols = new Array(W).fill(0);
+    for (let y = a; y < z; y++) for (let x = 0; x < W; x++) cols[x] += ink[y * W + x];
+    const segs = []; let x0 = -1, gap = 0;
+    for (let x = 0; x <= W; x++) {
+      const on = x < W && cols[x] > 0;
+      if (on) { if (x0 < 0) x0 = x; gap = 0; }
+      else if (x0 >= 0 && (++gap > W * 0.045 || x === W)) { segs.push([x0, x - gap + 1]); x0 = -1; gap = 0; }
+    }
+    return { y: a / H, h: (z - a) / H, segs: segs.map(([p, q]) => ({ x: p / W, w: (q - p) / W })) };
+  });
+}
+let measureCtx;
+function overlayText(tl, bands, text, pw, ph) {
+  tl.textContent = '';
+  const units = pageLines(text);
+  if (!bands.length || !units.length) return;
+  // the running header is not in the converted text
+  if (bands.length > 1 && bands[0].y < 0.085) bands = bands.slice(1);
+  const width = bd => bd.segs.reduce((a, s) => a + s.w, 0);
+  const lenOf = u => u.parts.join(' ').length;
+  const density = units.reduce((a, u) => a + lenOf(u), 0) / Math.max(0.01, bands.reduce((a, bd) => a + width(bd), 0));
+  const box = segs => { if (!segs.length) return null; const x = Math.min(...segs.map(s => s.x)), z = Math.max(...segs.map(s => s.x + s.w)); return { x, w: z - x }; };
+  measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+  const put = (str, bd, bx) => {
+    if (!str || !bx || bx.w <= 0) return;
+    const fs = Math.max(6, bd.h * ph * 0.9);
+    measureCtx.font = `${fs}px sans-serif`;
+    const tw = measureCtx.measureText(str).width || 1;
+    tl.append(el('span', { dir: 'rtl', text: str, style: `left:${(bx.x * 100).toFixed(3)}%;top:${(bd.y * 100).toFixed(3)}%;font-size:${fs.toFixed(1)}px;font-family:sans-serif;transform:scaleX(${(bx.w * pw / tw).toFixed(4)})` }));
+  };
+  let k = 0;
+  const lastBand = () => bands[Math.min(k, bands.length - 1)];
+  for (const u of units) {
+    if (u.verse) {
+      const bd = lastBand(); k++;
+      const right = bd.segs.filter(s => s.x + s.w / 2 >= 0.5), left = bd.segs.filter(s => s.x + s.w / 2 < 0.5);
+      const all = box(bd.segs);
+      put(u.parts[0] + ' ', bd, box(right) || (all && { x: all.x + all.w / 2, w: all.w / 2 }));
+      put(u.parts.slice(1).join(' '), bd, box(left) || (all && { x: all.x, w: all.w / 2 }));
+      tl.append(el('br'));
+      continue;
+    }
+    // prose: spread the words over as many lines as their length needs
+    const words = u.parts.join(' ').split(/\s+/);
+    let need = Math.max(1, Math.round(lenOf(u) / Math.max(1, width(lastBand()) * density)));
+    let wi = 0;
+    while (wi < words.length) {
+      const bd = lastBand(); k++;
+      const lines = Math.max(1, need--);
+      const take = k > bands.length ? words.length - wi : Math.ceil((words.length - wi) / lines);
+      put(words.slice(wi, wi + take).join(' '), bd, box(bd.segs)); wi += take;
+      tl.append(el('br'));
+      if (need <= 0 && wi < words.length) need = 1;
+    }
+  }
+}
+
 /* PDF text: rebuild lines from glyph runs, and fix Arabic stored in visual (reversed) order */
 const COMMON_AR = new Set(['في', 'من', 'علي', 'عن', 'الي', 'ما', 'لا', 'ان', 'قال', 'هذا', 'هذه', 'التي', 'الذي', 'كان', 'بن', 'ابن', 'هو', 'هي', 'مع', 'كل', 'او', 'ثم', 'لم', 'قد', 'الله', 'وقال', 'وهو', 'حدثنا', 'اخبرنا']);
 function arScore(s) {
@@ -1734,7 +1913,7 @@ function showView(v) {
   if (v === 'lib') { hideSelbar(); renderLibrary(); }
 }
 let ro;
-async function openBook(id) {
+async function openBook(id, at) {
   const b = S.books.get(id); if (!b) return;
   let file = null;
   if (b.format !== 'sample') {
@@ -1743,7 +1922,11 @@ async function openBook(id) {
   }
   closeReader();
   showView('read');
-  $('#rTitle').textContent = b.title; $('#rPos').textContent = '';
+  $('#rTitle').textContent = baseOf(b) ? baseOf(b).title : b.title; $('#rPos').textContent = '';
+  const alt = baseOf(b) || twinOf(b), av = $('#altView');
+  av.hidden = !alt; av.textContent = baseOf(b) ? 'شكل الكتاب' : 'اقرأه كنص';
+  av.title = baseOf(b) ? 'افتح نفس الصفحة بشكل الكتاب الأصلي' : 'افتح نفس الصفحة كنص يكبر خطه';
+  av.onclick = alt ? () => { const u = S.cur ? S.cur.R.current().u : 0; openBook(alt.id, { u, f: 0 }); } : null;
   const ld = $('#loading'); ld.hidden = false; ld.textContent = 'جاري فتح الكتاب…';
   const scroller = $('#scroller'); scroller.textContent = ''; scroller.scrollTop = 0;
   try {
@@ -1758,8 +1941,11 @@ async function openBook(id) {
     $('#zoomIn').setAttribute('aria-label', R.kind === 'pdf' ? 'تكبير الصفحة' : 'تكبير الخط');
     ld.hidden = true;
     await sleep(30);
-    R.scrollTo(Math.min(b.pos?.u || 0, R.units - 1), b.pos?.f || 0);
-    if (b.lastRead && (b.pos?.u || b.pos?.f)) toast(`رجعتك لمكانك: ${R.short(b.pos.u || 0)}`);
+    if (at) R.scrollTo(Math.min(at.u, R.units - 1), at.f || 0);
+    else {
+      R.scrollTo(Math.min(b.pos?.u || 0, R.units - 1), b.pos?.f || 0);
+      if (b.lastRead && (b.pos?.u || b.pos?.f)) toast(`رجعتك لمكانك: ${R.short(b.pos.u || 0)}`);
+    }
     b.lastRead = Date.now(); persist(b);
     updatePos();
     buildScopes();
@@ -1800,7 +1986,8 @@ function updatePos() {
 }
 async function buildIndex(cur) {
   const R = cur.R, note = $('#idxNote');
-  const cached = await IDB.get('text', cur.b.id);
+  const ikey = cur.b.id + (R.hasOverlay ? ':ov' : '');
+  const cached = await IDB.get('text', ikey);
   if (Array.isArray(cached) && cached.length === R.units) { R.index = cached; cur.indexDone = true; return; }
   R.index = new Array(R.units).fill(null);
   for (let i = 0; i < R.units; i++) {
@@ -1811,7 +1998,7 @@ async function buildIndex(cur) {
   cur.indexDone = true; note.hidden = true;
   const chars = R.index.reduce((a, t) => a + t.replace(/\s/g, '').length, 0);
   cur.scanned = chars < R.units * 20;
-  try { await IDB.put('text', cur.b.id, R.index); } catch { /* keep in memory */ }
+  try { await IDB.put('text', ikey, R.index); } catch { /* keep in memory */ }
 }
 
 /* ================= selection toolbar ================= */
