@@ -2613,13 +2613,13 @@ const drop = $('#drop');
 document.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); if (!$('#libView').hidden && canAdd()) addFiles([...e.dataTransfer.files]); } });
 
 /* ================= boot ================= */
-const AUTH_ERR = m => /invalid login/i.test(m) ? 'الإيميل أو كلمة السر غلط. تأكد إنه نفس الإيميل اللي سجلت فيه.' : /already registered|already been registered/i.test(m) ? 'هالإيميل عنده حساب. اضغط «دخول».' : /password/i.test(m) ? 'كلمة السر لازم تكون ٦ حروف أو أكثر.' : /email/i.test(m) && /confirm/i.test(m) ? 'لازم تأكد إيميلك أول. شوف بريدك.' : /rate|too many/i.test(m) ? 'محاولات وايد. انتظر شوي وجرّب.' : 'صار خطأ: ' + m;
+const AUTH_ERR = m => /invalid login/i.test(m) ? 'الإيميل أو كلمة السر غلط. تأكد إنه نفس الإيميل اللي سجلت فيه.' : /already registered|already been registered/i.test(m) ? 'هالإيميل عنده حساب. اضغط «دخول».' : /password/i.test(m) ? 'كلمة السر لازم تكون ٦ حروف أو أكثر.' : /email/i.test(m) && /confirm/i.test(m) ? 'لازم تأكد إيميلك أول. شوف بريدك.' : /security purposes|after \d+ seconds/i.test(m) ? 'انتظر ' + ((m.match(/(\d+) seconds/) || [])[1] || 'دقيقة') + ' ثانية وجرّب مرة ثانية.' : /rate|too many/i.test(m) ? 'محاولات وايد. انتظر شوي وجرّب.' : 'صار خطأ: ' + m;
 async function authSubmit(kind) {
   const email = $('#authEmail').value.trim().toLowerCase(), password = $('#authPass').value;
   const st = $('#authStatus'); st.className = 'status';
   if (!email || password.length < 6) { st.className = 'status err'; st.textContent = 'اكتب الإيميل وكلمة سر من ٦ حروف أو أكثر.'; return; }
   st.textContent = kind === 'up' ? 'يسوي الحساب…' : 'يدخل…';
-  const { data, error } = kind === 'up' ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
+  const { data, error } = kind === 'up' ? await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } }) : await sb.auth.signInWithPassword({ email, password });
   if (error) { st.className = 'status err'; st.textContent = AUTH_ERR(error.message || ''); return; }
   if (!data.session) { st.textContent = 'انرسل لك إيميل تأكيد. افتحه، وبعدين ارجع اضغط «دخول».'; return; }
   st.textContent = '';
