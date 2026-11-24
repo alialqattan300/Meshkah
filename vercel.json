@@ -1,5 +1,10 @@
 {
   "functions": {
-    "api/claude.js": { "maxDuration": 300 }
+    "api/claude.js": {
+      "maxDuration": 300
+    },
+    "api/voice.js": {
+      "maxDuration": 60
+    }
   }
 }
