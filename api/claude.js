@@ -9,6 +9,8 @@ const DAILY_LIMIT = Number(process.env.MIDAD_DAILY_LIMIT || 60);
 // Admins convert whole books to diacritized text (3 pages per request), so they get more.
 const ADMIN_DAILY_LIMIT = Number(process.env.MIDAD_ADMIN_DAILY_LIMIT || 400);
 const MODEL = process.env.MIDAD_MODEL || 'claude-opus-5-5';
+// Quick tasks (like the poetry scale) ask for a faster model with less thinking.
+const FAST_MODEL = process.env.MIDAD_FAST_MODEL || 'claude-sonnet-5-5';
 const MAX_PROMPT_BYTES = 400000;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -50,11 +52,11 @@ export default async function handler(req, res) {
   const client = new Anthropic();
   try {
     const stream = client.beta.messages.stream({
-      model: MODEL,
-      max_tokens: 16000,
+      model: body.fast ? FAST_MODEL : MODEL,
+      max_tokens: body.fast ? 8000 : 16000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      output_config: { effort: 'medium' },
+      output_config: { effort: body.fast ? 'low' : 'medium' },
       messages: [{ role: 'user', content }],
     });
     stream.on('text', (delta) => {
