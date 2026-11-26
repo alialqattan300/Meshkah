@@ -1341,8 +1341,8 @@ $('#folkRef').addEventListener('toggle', () => { if ($('#folkRef').open && !$('#
    الفصيحة والشعبية بزحافاتها، وتختار الأقرب. كل تفعيلة تطلع محسوبة من الرموز، مو مخمّنة.
    صيغة كل شكل: [الرموز، اسم الصيغة، الزحاف أو العلة، 1 إذا يجي بآخر الشطر بس] */
 const FEET = {
-  'فعولن': [['//0/0', 'فعولن', 'سالمة'], ['//0/', 'فعولُ', 'قبض'], ['//00', 'فعولْ', 'قصر', 1], ['//0', 'فعو', 'حذف', 1]],
-  'مفاعيلن': [['//0/0/0', 'مفاعيلن', 'سالمة'], ['//0//0', 'مفاعلن', 'قبض'], ['//0/0/', 'مفاعيلُ', 'كف'], ['//0/0', 'فعولن', 'حذف', 1], ['//0/00', 'مفاعيلْ', 'قصر', 1]],
+  'فعولن': [['/0/0', 'عولن', 'ثلم (خرم)', 2], ['/0/', 'عولُ', 'ثرم (خرم)', 2], ['//0/0', 'فعولن', 'سالمة'], ['//0/', 'فعولُ', 'قبض'], ['//00', 'فعولْ', 'قصر', 1], ['//0', 'فعو', 'حذف', 1]],
+  'مفاعيلن': [['/0/0/0', 'مفعولن', 'خرم', 2], ['/0//0', 'فاعلن', 'خرم وقبض', 2], ['/0/0/', 'مفعولُ', 'خرم وكف', 2], ['//0/0/0', 'مفاعيلن', 'سالمة'], ['//0//0', 'مفاعلن', 'قبض'], ['//0/0/', 'مفاعيلُ', 'كف'], ['//0/0', 'فعولن', 'حذف', 1], ['//0/00', 'مفاعيلْ', 'قصر', 1]],
   'فاعلن': [['/0//0', 'فاعلن', 'سالمة'], ['///0', 'فعِلن', 'خبن'], ['/0/0', 'فعْلن', 'قطع'], ['/0//00', 'فاعلانْ', 'تذييل', 1], ['/0/00', 'فعْلانْ', 'قطع وتذييل', 1]],
   'مستفعلن': [['/0/0//0', 'مستفعلن', 'سالمة'], ['//0//0', 'متفعلن', 'خبن'], ['/0///0', 'مستعلن', 'طي'], ['////0', 'متعلن', 'خبل'],
     ['/0/0/0', 'مستفعلْ', 'قطع', 1], ['//0/0', 'متفعلْ', 'خبن وقطع', 1], ['/0/0//00', 'مستفعلانْ', 'تذييل', 1], ['/0/0//0/0', 'مستفعلاتن', 'ترفيل', 1]],
@@ -1398,8 +1398,10 @@ function buildForm(name, variant, taf, kind) {
   fixed.forEach((slot, i) => {
     const end = { out: [] }, endId = nodes.length; nodes.push(end);
     const last = i === fixed.length - 1;
-    FEET[slot].forEach(([sym, label, zihaf, endOnly]) => {
-      if (endOnly && !last) return;
+    FEET[slot].forEach(([sym, label, zihaf, only]) => {
+      if (only === 1 && !last) return;
+      if (only === 2 && i !== 0) return;
+      const endOnly = only === 1;
       let prev = bounds[i];
       [...sym].forEach((ch, k) => {
         const tgt = k === sym.length - 1 ? endId : nodes.push({ out: [] }) - 1;
@@ -1427,35 +1429,37 @@ function meterForms() {
 }
 // أقل كلفة لمطابقة رموز s على مخطط الوزن (تبديل أو زيادة أو نقص رمز = 10، الزحاف = 1)، مع التفعيلات اللي طلعت
 const EDIT = 10;
-function matchForm(s, f) {
-  const m = s.length, N = f.nodes.length, INF = 1e9;
+// opt: الرموز اللي ممكن تسقط بالإلقاء (حرف مد يتقصّر). بالشعر الشعبي إسقاطها رخيص، وإشباع حركة (زيادة ساكن) كلفته أقل من الخطأ
+function matchForm(s, f, opt) {
+  const m = s.length, N = f.nodes.length, INF = 1e9, folk = f.kind === 'شعبي';
+  const insCost = p => opt && opt[p] ? (folk ? 3 : 8) : EDIT, delCost = e => folk && e.ch === '0' ? 5 : EDIT;
   const D = Array.from({ length: m + 1 }, () => new Float64Array(N).fill(INF));
   const P = Array.from({ length: m + 1 }, () => new Array(N).fill(null));
   D[0][f.start] = 0;
   for (let p = 0; p <= m; p++) {
     for (const u of f.order) {
       const d = D[p][u]; if (d >= INF) continue;
-      if (p < m && d + EDIT < D[p + 1][u]) { D[p + 1][u] = d + EDIT; P[p + 1][u] = { p, u, e: null, op: 'ins' }; }
+      if (p < m && d + insCost(p) < D[p + 1][u]) { D[p + 1][u] = d + insCost(p); P[p + 1][u] = { p, u, e: null, op: insCost(p) < 5 ? 'soft' : 'ins' }; }
       for (const e of f.nodes[u].out) {
         if (p < m) { const c = d + e.cost + (s[p] === e.ch || s[p] === '?' ? 0 : EDIT); if (c < D[p + 1][e.to]) { D[p + 1][e.to] = c; P[p + 1][e.to] = { p, u, e, op: s[p] === e.ch || s[p] === '?' ? 'ok' : 'sub' }; } }
-        const c2 = d + e.cost + EDIT; if (c2 < D[p][e.to]) { D[p][e.to] = c2; P[p][e.to] = { p, u, e, op: 'del' }; }
+        const c2 = d + e.cost + delCost(e); if (c2 < D[p][e.to]) { D[p][e.to] = c2; P[p][e.to] = { p, u, e, op: delCost(e) < EDIT ? 'long' : 'del' }; }
       }
     }
   }
   const cost = D[m][f.end]; if (cost >= INF) return null;
   // نرجع بالمسار: لكل تفعيلة، الصيغة اللي اختارها ومدى رموزها بالبيت
-  const feet = f.slots.map(() => ({ v: null, a: m, b: 0, errs: 0 }));
+  const feet = f.slots.map(() => ({ v: null, a: m, b: 0, errs: 0, soft: 0, long: 0 }));
   let p = m, u = f.end, lastSlot = f.slots.length - 1;
   while (P[p][u]) {
     const st = P[p][u];
     const slot = st.e ? st.e.slot : lastSlot;
     const ft = feet[slot]; if (st.e) ft.v = st.e.v;
-    if (st.op !== 'del') { ft.a = Math.min(ft.a, st.p); ft.b = Math.max(ft.b, st.p + 1); }
-    if (st.op !== 'ok') ft.errs++;
+    if (st.op !== 'del' && st.op !== 'long') { ft.a = Math.min(ft.a, st.p); ft.b = Math.max(ft.b, st.p + 1); }
+    if (st.op === 'soft') ft.soft++; else if (st.op === 'long') ft.long++; else if (st.op !== 'ok') ft.errs++;
     lastSlot = slot; p = st.p; u = st.u;
   }
   let pos = 0; feet.forEach(ft => { if (ft.b <= ft.a) { ft.a = ft.b = pos; } pos = ft.b; });
-  return { cost, edits: Math.floor(cost / EDIT + 1e-9), feet };
+  return { cost, edits: feet.reduce((a, x) => a + x.errs, 0), feet };
 }
 // وحدات الكتابة العروضية: كل حرف مع حركاته ورموزه، وحدود الكلمات (عشان نقسم السطر شطرين)
 function arudUnits(str) {
@@ -1473,8 +1477,11 @@ function arudUnits(str) {
   }
   // حرف بدون حركة وبعده حرف مد: أكيد متحرك (لاْ، بُوْ)
   units.forEach((u, i) => { const n = units[i + 1]; if (u.sym === '?' && n && !n.word && MADD.has([...n.txt][0]) && n.sym === '0') u.sym = '/'; });
+  // حرف مد بعد متحرك (عالي، يمّه): بالإلقاء الشعبي ممكن يتقصّر فيسقط ساكنه
+  units.forEach((u, i) => { const pr = units[i - 1]; u.opt = u.sym === '0' && MADD.has([...u.txt][0]) && !!pr && !u.word && pr.sym.endsWith('/'); });
   return units;
 }
+function halfOpt(units) { const o = []; units.forEach(u => { for (let k = 0; k < u.sym.length; k++) o.push(!!u.opt); }); return o; }
 function halfSym(units) {
   let s = units.map(u => u.sym).join('');
   if (s.endsWith('/')) s = s.slice(0, -1) + '0'; // الروي المتحرك آخر الشطر يُشبع
@@ -1490,19 +1497,19 @@ function scanPoem(verses, prefer) {
     for (const halves of vs) {
       let best = null;
       // 1) كل شطر لحاله على تفعيلات الوزن
-      const each = halves.map(x => matchForm(halfSym(x.units), f));
+      const each = halves.map(x => matchForm(halfSym(x.units), f, halfOpt(x.units)));
       if (each.every(Boolean)) best = { cost: each.reduce((a, r) => a + r.cost, 0), mode: 'halves', parts: halves.map((x, i) => ({ units: x.units, r: each[i], h: x.h })) };
       // 2) سطر واحد فيه البيت كامل: نجرب نقسمه عند حدود الكلمات
       if (halves.length === 1) {
         const u = halves[0].units, cuts = u.map((x, i) => i).filter(i => i > 0 && u[i].word);
         for (const c of cuts) {
-          const a = matchForm(halfSym(u.slice(0, c)), f), b = matchForm(halfSym(u.slice(c)), f);
+          const a = matchForm(halfSym(u.slice(0, c)), f, halfOpt(u.slice(0, c))), b = matchForm(halfSym(u.slice(c)), f, halfOpt(u.slice(c)));
           if (a && b && (!best || a.cost + b.cost + 0.5 < best.cost)) best = { cost: a.cost + b.cost + 0.5, mode: 'split', parts: [{ units: u.slice(0, c), r: a, h: halves[0].h, cut: 'الصدر' }, { units: u.slice(c), r: b, h: halves[0].h, cut: 'العجز' }] };
         }
       }
       // 3) الوزن الشعبي ممكن تكون تفعيلاته للبيت كامل (الصدر والعجز مع بعض)
       if (f.kind === 'شعبي' && halves.length === 2) {
-        const all = halves[0].units.concat(halves[1].units), r = matchForm(halfSym(all), f);
+        const all = halves[0].units.concat(halves[1].units), r = matchForm(halfSym(all), f, halfOpt(all));
         if (r && (!best || r.cost + 0.5 < best.cost)) best = { cost: r.cost + 0.5, mode: 'whole', parts: [{ units: all, r, h: { text: halves.map(x => x.h.text).join(' ... '), arudi: halves.map(x => x.h.arudi).join(' ') } }] };
       }
       if (!best) { total = Infinity; break; }
@@ -1515,7 +1522,7 @@ function scanPoem(verses, prefer) {
   results.sort((a, b) => a.total - b.total || a.f.slots.length - b.f.slots.length);
   // نشيل التكرار: نفس الوزن بأكثر من صيغة
   const seen = new Set(), uniq = [];
-  for (const r of results) { const k = r.f.name; if (seen.has(k)) continue; seen.add(k); uniq.push(r); }
+  for (const r of results) { const k = r.f.name + r.f.kind; if (seen.has(k)) continue; seen.add(k); uniq.push(r); }
   return uniq;
 }
 // تفعيلات شطر بعد المطابقة: النص والرموز والصيغة والزحاف
@@ -1526,7 +1533,8 @@ function feetOf(part, f) {
     const seg = sym.slice(ft.a, ft.b);
     const txt = units.filter((u, k) => u.sym && starts[k] >= ft.a && starts[k] < ft.b).map((u, x) => (u.word && x ? ' ' : '') + u.txt).join('');
     const v = ft.v || { sym: '', label: f.slots[i], zihaf: '' };
-    return { seg: txt, sym: seg, want: v.sym, tafeela: v.label, base: f.slots[i], change: v.zihaf, ok: seg === v.sym };
+    const how = [ft.soft && 'تقصير مد', ft.long && 'إشباع'].filter(Boolean).join(' و');
+    return { seg: txt, sym: seg, want: v.sym, tafeela: v.label, base: f.slots[i], change: v.zihaf, ok: !ft.errs, how };
   });
 }
 
@@ -1694,6 +1702,7 @@ function renderPoem(j) {
         el('div', { class: 'pm-feet' }, ft.map(x => el('div', { class: 'pm-foot' + (x.ok ? '' : ' bad'), title: x.ok ? '' : `رموز المقطع ${symText(x.sym)} وصيغة التفعيلة ${symText(x.want)}` },
           el('span', { class: 'pm-seg', text: x.seg }), symRow(x.sym), el('span', { class: 'pm-taf', text: x.tafeela }),
           x.ok && x.change && el('span', { class: 'pm-chg', text: x.change === 'سالمة' ? x.change : `${x.change} (أصلها ${x.base})` }),
+          x.how && el('span', { class: 'pm-chg', text: `بالإلقاء: ${x.how}` }),
           !x.ok && el('span', { class: 'pm-chg', text: `المفروض ${symText(x.want)}` }))))));
     });
     out.append(box); vi++;
