@@ -1467,7 +1467,7 @@ function matchForm(s, f, opt) {
   return { cost, edits: feet.reduce((a, x) => a + x.errs, 0), feet };
 }
 // وحدات الكتابة العروضية: كل حرف مع حركاته ورموزه، وحدود الكلمات (عشان نقسم السطر شطرين)
-function arudUnits(str) {
+function arudUnits(str, folk) {
   const ch = [...String(str || '').normalize('NFC').replace(/ـ/g, '')];
   const units = []; let prevTanween = false, gap = false;
   for (let i = 0; i < ch.length; i++) {
@@ -1483,9 +1483,10 @@ function arudUnits(str) {
   // حرف بدون حركة وبعده حرف مد: أكيد متحرك (لاْ، بُوْ)
   units.forEach((u, i) => { const n = units[i + 1]; if (u.sym === '?' && n && !n.word && MADD.has([...n.txt][0]) && n.sym === '0') u.sym = '/'; });
   // حرف مد بعد متحرك (عالي، يمّه): بالإلقاء الشعبي ممكن يتقصّر فيسقط ساكنه
+  if (!folk) return units; // الفصيح يتوزن على كتابته بالضبط
   units.forEach((u, i) => { const pr = units[i - 1]; u.opt = u.sym === '0' && MADD.has([...u.txt][0]) && !!pr && !u.word && pr.sym.endsWith('/'); });
-  // كلمة تبدأ بساكن (حْسين، تْگلّه، عْيوني): الساكن الأول ممكن ما ينحسب بالإلقاء
-  units.forEach(u => { if (u.word && u.sym === '0') u.opt = true; });
+  // كلمة تبدأ بساكن (حْسين، تْگلّه، عْيوني): باللهجة تنلفظ بهمزة قبلها (اِحْسين = /٥)، ونسمح بإسقاطها
+  units.forEach(u => { if (u.word && u.sym === '0') { u.sym = '/0'; u.opt = true; } });
   return units;
 }
 function halfOpt(units) { const o = []; units.forEach(u => { for (let k = 0; k < u.sym.length; k++) o.push(!!u.opt); }); return o; }
@@ -1497,11 +1498,13 @@ function halfSym(units) {
 // يطابق أبيات القصيدة (كل بيت شطر أو شطرين) على كل الأوزان، ويرجّع الأقرب مع البدائل
 function scanPoem(verses, prefer) {
   const forms = meterForms();
-  const vs = verses.map(v => (v.halves || []).filter(h => h && h.arudi).map(h => ({ h, units: arudUnits(h.arudi) })));
-  const results = [];
+  const prep = folk => verses.map(v => (v.halves || []).filter(h => h && h.arudi).map(h => ({ h, units: arudUnits(h.arudi, folk) })));
+  const vsFasih = prep(false), vsFolk = prep(true);
+  const perForm = [];
+  const vs = vsFasih;
   for (const f of forms) {
-    let total = 0, edits = 0, plan = [];
-    for (const halves of vs) {
+    const bests = [];
+    for (const halves of (f.kind === 'شعبي' ? vsFolk : vsFasih)) {
       let best = null;
       // 1) كل شطر لحاله على تفعيلات الوزن
       const each = halves.map(x => matchForm(halfSym(x.units), f, halfOpt(x.units)));
@@ -1519,11 +1522,24 @@ function scanPoem(verses, prefer) {
         const all = halves[0].units.concat(halves[1].units), r = matchForm(halfSym(all), f, halfOpt(all));
         if (r && (!best || r.cost + 0.5 < best.cost)) best = { cost: r.cost + 0.5, mode: 'whole', parts: [{ units: all, r, h: { text: halves.map(x => x.h.text).join(' ... '), arudi: halves.map(x => x.h.arudi).join(' ') } }] };
       }
-      if (!best) { total = Infinity; break; }
-      total += best.cost; edits += best.parts.reduce((a, x) => a + x.r.edits, 0); plan.push(best);
+      if (best) best.f = f;
+      bests.push(best);
     }
+    perForm.push({ f, bests });
+  }
+  // صيغ الوزن الواحد (الأصل والزحافات) تتجمع: كل بيت ياخذ أقرب صيغة له
+  const groups = new Map();
+  for (const x of perForm) { const k = x.f.name + x.f.kind; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  const results = [];
+  for (const list of groups.values()) {
+    let total = 0, edits = 0; const plan = [];
+    vs.forEach((_, i) => {
+      const best = list.map(x => x.bests[i]).filter(Boolean).sort((a, b) => a.cost - b.cost)[0];
+      if (!best) { total = Infinity; return; }
+      total += best.cost; edits += best.parts.reduce((a, x) => a + x.r.edits, 0); plan.push(best);
+    });
     if (total === Infinity) continue;
-    const bias = prefer && f.kind !== prefer ? 3 : 0; // نوع الشعر اللي اختاره المستخدم أو Claude يتقدم شوي
+    const f = plan[0].f, bias = prefer && f.kind !== prefer ? 3 : 0; // نوع الشعر اللي اختاره المستخدم أو Claude يتقدم شوي
     results.push({ f, total: total + bias, edits, plan });
   }
   results.sort((a, b) => a.total - b.total || a.f.slots.length - b.f.slots.length);
@@ -1683,7 +1699,7 @@ function renderPoem(j) {
   const near = scan.slice(1).filter(r => !same.includes(r)).slice(0, 3);
   const folk = f.kind === 'شعبي' ? FOLK_METERS.find(m => m.n === f.name) : null;
   const key = f.kind === 'فصيح' ? meterKey(f.name) : '';
-  const allFeet = top.plan.flatMap(p => p.parts.flatMap(pt => feetOf(pt, f)));
+  const allFeet = top.plan.flatMap(p => p.parts.flatMap(pt => feetOf(pt, p.f)));
   const bad = allFeet.filter(x => !x.ok).length;
   out.append(el('div', { class: 'pm-sum' },
     el('span', {}, el('b', { text: f.name }), ' · ', f.kind, f.variant ? ` · ${f.variant}` : '', top.plan.some(p => p.mode === 'whole') ? ' · تفعيلاته للبيت كامل' : ''),
@@ -1714,7 +1730,7 @@ function renderPoem(j) {
     const box = el('div', { class: 'pm-verse' }, el('h3', { text: top.plan.length > 1 ? `البيت ${num(i + 1)}` : 'التقطيع' }));
     p.parts.forEach((pt, k) => {
       const label = pt.cut ? pt.cut + ': ' : p.parts.length > 1 ? (k ? 'العجز: ' : 'الصدر: ') : '';
-      const ft = feetOf(pt, f);
+      const ft = feetOf(pt, p.f);
       box.append(el('div', { class: 'pm-half' },
         el('p', { class: 'pm-text', text: label + (pt.cut ? pt.units.map(u => u.txt).join('') : pt.h.text || '') }),
         el('p', { class: 'pm-arudi', text: `الكتابة العروضية: ${pt.cut ? pt.units.map((u, x) => (u.word && x ? ' ' : '') + u.txt).join('') : pt.h.arudi}` }),
@@ -1733,7 +1749,7 @@ function poemPlain(j) {
   top.plan.forEach((p, i) => {
     lines.push('', top.plan.length > 1 ? `البيت ${num(i + 1)}` : '');
     for (const pt of p.parts) {
-      const ft = feetOf(pt, top.f);
+      const ft = feetOf(pt, p.f);
       lines.push(pt.h.text || '', ft.map(x => x.seg).join(' | '), ft.map(x => symText(x.sym)).join(' | '), ft.map(x => x.tafeela).join(' | '));
     }
   });
