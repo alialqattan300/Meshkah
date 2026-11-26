@@ -1361,7 +1361,7 @@ async function sendVoice(blob) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw { code: j.code || (r.status === 429 ? 'rate_limited' : r.status === 401 ? 'not_granted' : 'upstream_error') };
     if (!j.words || !j.words.length) throw { code: 'audio_too_short' };
-    voiceTiming = j;
+    voiceTiming = j; voiceTiming.lines = voiceLines(j.words).join('\n');
     $('#poemIn').value = voiceLines(j.words).join('\n');
     st.className = 'status'; st.textContent = 'هذا اللي انسمع. صحّح أي كلمة غلط، وبعدين اضغط «زِن الشعر».';
     $('#poemIn').focus();
@@ -1412,7 +1412,10 @@ $('#voiceRec').addEventListener('click', async () => {
   st.className = 'status'; st.textContent = 'يسجّل…';
 });
 // If the text is edited a lot after recording, the letter times no longer match it.
-$('#poemIn').addEventListener('input', () => { if (voiceTiming && !$('#poemIn').value.trim()) voiceTiming = null; });
+// The letter times belong to the recording only: once the text is mostly different (a new poem), drop them.
+const voiceSame = (a, b) => { const n = x => x.replace(/[\s\u064B-\u0652ـ]/g, ''); a = n(a); b = n(b); if (!a || !b) return false;
+  let same = 0; const m = Math.min(a.length, b.length); for (let i = 0; i < m; i++) if (a[i] === b[i]) same++; return same / Math.max(a.length, b.length) > 0.6; };
+$('#poemIn').addEventListener('input', () => { if (voiceTiming && !voiceSame($('#poemIn').value, voiceTiming.lines || '')) { voiceTiming = null; $('#voiceStatus').textContent = ''; } });
 
 let poemType = 'auto', lastPoem = null, poemCtl = null;
 $('#poemType').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; poemType = b.dataset.v; setChip('#poemType', poemType); });
@@ -1445,11 +1448,11 @@ ${timing}
    tafeela: صيغة التفعيلة بعد التغيير بتشكيل كامل وسكون ظاهر (مثل فَعُوْلُنْ، مَفَاْعِلُنْ، مُتْفَاْعِلُنْ، فَعِلُنْ). base: أصلها السالم (مثل مَفَاْعِيْلُنْ). change: «سالمة» أو اسم الزحاف أو العلة (قبض، خبن، إضمار، طي، كف، عصب، حذف، قطف، قطع، تشعيث، ترفيل، تذييل…).
    لازم عدد المتحركات والسواكن وترتيبها في seg يطابق tafeela حرف بحرف. لا تخترع تفعيلات.
 بعدين حدّد البحر. للشعبي اكتب اسمه الشعبي (مثل الهلالي، المسحوب، الصخري، السامري، الهجيني، الحدا، المروبع، العرضة) وفي fasih_equiv البحر الخليلي اللي يقابله.
-وهذي أوزان الشعر الشعبي العراقي والحسيني وتفعيلات شطرها، إذا طابق الشعر واحد منها اكتب اسمه بالضبط مثل ما هو هنا: ${folkPromptList()}. إذا الكلام مو موزون أو ناقص، قطّعه قدر ما تقدر واكتب في meter «غير موزون» أو «غير مكتمل» ووضّح في note.
+وهذي أوزان الشعر الشعبي العراقي والحسيني وتفعيلات شطرها، لا تختار وزن منها إلا إذا تفعيلات الشطر بعد التقطيع تطابق تفعيلاته فعلاً، وإذا طابق اكتب اسمه بالضبط مثل ما هو هنا: ${folkPromptList()}. إذا الكلام مو موزون أو ناقص، قطّعه قدر ما تقدر واكتب في meter «غير موزون» أو «غير مكتمل» ووضّح في note.
 <poem>
 ${raw}
 </poem>
-الشكل: {"type": "فصيح" أو "شعبي", "meter": "اسم البحر", "variant": "تام أو مجزوء أو مشطور أو منهوك، ونوع العروض والضرب إن لزم", "fasih_equiv": "", "confidence": "عالية أو متوسطة أو منخفضة", "rhyme": "الروي ونوع القافية", "note": "ملاحظة قصيرة", "verses": [{"halves": [{"text": "", "arudi": "", "feet": [{"seg": "", "tafeela": "", "base": "", "change": ""}]}]}]}`, { signal: poemCtl.signal, fast: true });
+الشكل: {"type": "فصيح" أو "شعبي", "meter": "اسم البحر", "variant": "تام أو مجزوء أو مشطور أو منهوك، ونوع العروض والضرب إن لزم", "fasih_equiv": "", "confidence": "عالية أو متوسطة أو منخفضة", "rhyme": "الروي ونوع القافية", "note": "ملاحظة قصيرة", "verses": [{"halves": [{"text": "", "arudi": "", "feet": [{"seg": "", "tafeela": "", "base": "", "change": ""}]}]}]}`, { signal: poemCtl.signal });
     if (!j || !Array.isArray(j.verses) || !j.verses.length) throw { code: 'invalid_json' };
     lastPoem = j; renderPoem(j); $('#poemCopy').hidden = false; status.textContent = '';
   } catch (e) {
