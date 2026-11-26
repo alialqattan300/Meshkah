@@ -141,6 +141,9 @@ button { cursor: pointer; }
 .sym i { font-style: normal; min-width: .6em; text-align: center; }
 .sym i.q { color: var(--bad); }
 .voice-row { align-items: center; }
+.pm-fix { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pm-fix summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.pm-edit { font-family: var(--f-read); font-size: 17px; line-height: 2; min-height: 80px; width: 100%; margin: 8px 0; }
 #voiceRec[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: #fff; }
 .voice-heard { font-size: 13px; color: var(--muted); margin: 0; }
 .folk { border-top: 1px solid var(--line); padding-top: 10px; }
@@ -1275,7 +1278,7 @@ const FOLK_METERS = [
   { n: 'المثلث', g: 1, t: 'فاعلاتن فاعلاتن فاعلاتن', d: 'مطابق لبحر الرمل الفصيح، سماه شعراء العامة المثلث لعدم خضوع أجزائه للعلل والزحاف. من الأوزان المنبرية، انتشر أواخر القرن التاسع عشر.' },
   { n: 'التجليبة', g: 2, t: 'مفاعيلن مفاعيلن مفاعيلن', d: 'من الهزج، له شعبية واسعة لسلاسته في الأداء والبناء، نسبة لأول قصيدة كتبت عليه «أجلبنك يليلي ألف تجليبة». كثير الاستخدام بالوسط الحسيني، وينظم على ٣٤ نموذج، رباعي وعمودي.', ex: ['اجت زينب الحره المعصب ابيدها', 'تهلهل والهلاهل لبن والدها'] },
   { n: 'النصاري', g: 2, t: 'مفاعيلن مفاعيلن مفاعيل', d: 'مشتق من الهزج (وبعض العروضيين يقول من الوافر). من الأوزان المنبرية، انتشر في النصف الثاني من القرن التاسع عشر، نسبة للشيخ محمد بن نصار. غالباً يستخدم بالنعي. مطابق للأبوذية.', same: 'الأبوذية', ex: ['تحسر ويل قلبي و جذب ونه', 'و من الماي آه انقطع ظنه'] },
-  { n: 'الطويل', g: 2, t: 'مفاعيلن مفاعيلن مفاعيلن مفاعيلن', d: 'مشتق من الهزج رباعي التفعيلة، ويختلف تماماً عن الطويل الفصيح ولا يشبهه إلا بالاسم. من الأوزان المنبرية انتشر أوائل القرن العشرين، ويكتب رباعي وعمودي.', ex: ['علي عالي اعله كل عالي .. علي يموكل من الرب', 'علي ما نصيبك منصوب .. لاكن بالنص امنصب'] },
+  { n: 'الطويل', g: 2, t: 'مفاعيلن مفاعيلن مفاعيلن مفاعيلن', more: ['مستفعلن مفعولان مفاعيلن مفاعيلن'], d: 'مشتق من الهزج رباعي التفعيلة، ويختلف تماماً عن الطويل الفصيح ولا يشبهه إلا بالاسم. من الأوزان المنبرية انتشر أوائل القرن العشرين، ويكتب رباعي وعمودي.', ex: ['علي عالي اعله كل عالي .. علي يموكل من الرب', 'علي ما نصيبك منصوب .. لاكن بالنص امنصب'] },
   { n: 'الأبوذية', g: 2, t: 'مفاعيلن مفاعيلن فعولن', d: 'من الهزج، من أكثر الأوزان الشعبية انتشاراً. تنظم بأربعة أشطر: الثلاثة الأولى تنتهي بكلمة متشابهة باللفظ مختلفة بالمعنى (الجناس)، والرابع ينتهي بكلمة آخرها «يه» ويسمى القفل أو الرباط. مطابقة للنصاري.', same: 'النصاري', ex: ['حنينك يا قلب إلمن تحنه', 'على العريس اللي ابدمه تحنه'] },
   { n: 'القصير', g: 2, t: '', d: 'ذكره الكتاب ضمن الأوزان المشتقة من الهزج بدون تفصيل ولا تفعيلات.' },
   { n: 'الزهيري', g: 3, t: 'مستفعلن فاعلن مستفعلن فاعلن', d: 'من البسيط، كثير الانتشار، ولا يختلف عن النايل (الموال). يكتب غالباً بسبعة أشطر: الثلاثة الأولى جناس واحد، والثلاثة اللي بعدها جناس ثاني، والسابع يرجع لجناس الأولى.', same: 'النايل', ex: ['أنشد على حسين اخوبه هاعدل هامات', 'لمن وردني الخبر روحي ابحزن هامات'] },
@@ -1320,6 +1323,7 @@ function folkCard(m) {
     m.t ? el('span', { class: 'folk-taf', text: m.t }) : el('span', { class: 'folk-note', text: 'بدون تفعيلات في الكتاب' }),
     m.t && el('div', { class: 'folk-cut', 'aria-label': 'التقطيع' }, folkCut(m.t).map(([x, s]) => el('span', {}, symRow(s), x))),
     m.alt && el('p', { class: 'folk-note', text: `ويجي كذلك: ${m.alt}` }),
+    m.more && el('p', { class: 'folk-note', text: `وبزحاف: ${m.more.join(' / ')}` }),
     m.same && el('p', { class: 'folk-note', text: `مطابق لـ: ${m.same}` }),
     m.of && el('p', { class: 'folk-note', text: `مركب من: ${m.of}` }),
     m.d && el('p', { class: 'folk-note', text: m.d }),
@@ -1364,6 +1368,7 @@ const FEET = {
   'مفعولن': [['/0/0/0', 'مفعولن', 'سالمة'], ['//0/0', 'فعولن', 'خبن']],
   'مفعولات': [['/0/0/0/', 'مفعولاتُ', 'سالمة'], ['/0/0/00', 'مفعولاتْ', 'وقف'], ['//0/0/', 'معولاتُ', 'خبن']],
   'مفعول': [['/0/0/', 'مفعولُ', 'سالمة'], ['/0/00', 'مفعولْ', 'وقف']],
+  'مفعولان': [['/0/0/00', 'مفعولانْ', 'سالمة'], ['//0/00', 'فعولانْ', 'خبن']],
   'مستفعلاتن': [['/0/0//0/0', 'مستفعلاتن', 'ترفيل'], ['//0//0/0', 'متفعلاتن', 'خبن وترفيل']],
   'مستفعلاتان': [['/0/0//0/00', 'مستفعلاتانْ', 'تسبيغ'], ['//0//0/00', 'متفعلاتانْ', 'خبن وتسبيغ']],
   'فعلان': [['/0/00', 'فعْلانْ', 'سالمة'], ['///00', 'فعِلانْ', 'خبن']],
@@ -1424,7 +1429,7 @@ let METER_FORMS = null;
 function meterForms() {
   if (METER_FORMS) return METER_FORMS;
   METER_FORMS = FASIH_FORMS.map(([n, v, t]) => buildForm(n, v, t, 'فصيح'));
-  for (const m of FOLK_METERS) for (const t of [m.t, m.alt]) if (t) { const f = buildForm(m.n, t === m.alt ? 'صيغة ثانية' : '', t, 'شعبي'); if (f) METER_FORMS.push(f); }
+  for (const m of FOLK_METERS) for (const t of [m.t, m.alt, ...(m.more || [])]) if (t) { const f = buildForm(m.n, t === m.t ? '' : 'صيغة ثانية', t, 'شعبي'); if (f) METER_FORMS.push(f); }
   return METER_FORMS = METER_FORMS.filter(Boolean);
 }
 // أقل كلفة لمطابقة رموز s على مخطط الوزن (تبديل أو زيادة أو نقص رمز = 10، الزحاف = 1)، مع التفعيلات اللي طلعت
@@ -1692,6 +1697,18 @@ function renderPoem(j) {
       ? `الوزن محسوب من الرموز: كل التفعيلات (${num(allFeet.length)}) طابقت صيغها حرف حرف.`
       : `ما طابق أي وزن بالضبط. هذا أقرب وزن، وفيه ${num(top.edits)} ${top.edits === 1 ? 'رمز' : 'رموز'} مختلفة بـ ${num(bad)} من ${num(allFeet.length)} تفعيلات (معلّمة بالأحمر). غالباً حرف انمد أو انقصر بالنطق، راجعها.` }),
     near.length && el('span', { class: 'meta', text: `أوزان قريبة: ${near.map(r => `${r.f.name} (${r.edits ? `فرق ${num(r.edits)}` : 'مطابق'})`).join('، ')}` })));
+  // المستخدم يقدر يصحح النطق بنفسه، والوزن ينعاد حسابه فوراً بدون Claude
+  const ed = el('textarea', { class: 'pm-edit', dir: 'rtl', 'aria-label': 'الكتابة العروضية' });
+  ed.value = j.verses.map(v => (v.halves || []).map(h => h.arudi || '').join(' * ')).join('\n');
+  const reBtn = el('button', { class: 'btn ghost', type: 'button', text: 'أعد حساب الوزن' });
+  reBtn.addEventListener('click', () => {
+    const lines = ed.value.split('\n').map(l => l.trim()).filter(Boolean);
+    j.verses = lines.map((l, i) => { const old = j.verses[i] || { halves: [] }; return { halves: l.split(/\s*\*\s*/).filter(Boolean).map((a, k) => ({ text: (old.halves[k] || {}).text || '', arudi: a })) }; });
+    j.scan = scanPoem(j.verses, top.f.kind === 'شعبي' || poemType === 'nabati' ? 'شعبي' : poemType === 'fasih' ? 'فصيح' : '');
+    renderPoem(j);
+  });
+  out.append(el('details', { class: 'pm-fix' }, el('summary', { text: 'النطق مو صح؟ عدّل الكتابة العروضية' }),
+    el('p', { class: 'meta', text: 'كل بيت بسطر، وافصل الصدر عن العجز بـ *. اكتب الحركة (َ ُ ِ) أو السكون (ْ) على كل حرف مثل ما تنطقه، وبعدين اضغط «أعد حساب الوزن».' }), ed, reBtn));
   let vi = 0;
   top.plan.forEach((p, i) => {
     const box = el('div', { class: 'pm-verse' }, el('h3', { text: top.plan.length > 1 ? `البيت ${num(i + 1)}` : 'التقطيع' }));
