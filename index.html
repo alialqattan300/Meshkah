@@ -1479,6 +1479,8 @@ function arudUnits(str) {
   units.forEach((u, i) => { const n = units[i + 1]; if (u.sym === '?' && n && !n.word && MADD.has([...n.txt][0]) && n.sym === '0') u.sym = '/'; });
   // حرف مد بعد متحرك (عالي، يمّه): بالإلقاء الشعبي ممكن يتقصّر فيسقط ساكنه
   units.forEach((u, i) => { const pr = units[i - 1]; u.opt = u.sym === '0' && MADD.has([...u.txt][0]) && !!pr && !u.word && pr.sym.endsWith('/'); });
+  // كلمة تبدأ بساكن (حْسين، تْگلّه، عْيوني): الساكن الأول ممكن ما ينحسب بالإلقاء
+  units.forEach(u => { if (u.word && u.sym === '0') u.opt = true; });
   return units;
 }
 function halfOpt(units) { const o = []; units.forEach(u => { for (let k = 0; k < u.sym.length; k++) o.push(!!u.opt); }); return o; }
