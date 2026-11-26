@@ -1405,7 +1405,7 @@ function buildForm(name, variant, taf, kind) {
     const last = i === fixed.length - 1;
     FEET[slot].forEach(([sym, label, zihaf, only]) => {
       if (only === 1 && !last) return;
-      if (only === 2 && i !== 0) return;
+      if (only === 2 && i !== 0 && kind !== 'شعبي') return; // الخرم: بالفصيح بأول الشطر بس، وبالشعبي يجي بأي تفعيلة
       const endOnly = only === 1;
       let prev = bounds[i];
       [...sym].forEach((ch, k) => {
